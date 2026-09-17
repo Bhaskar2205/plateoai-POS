@@ -1,0 +1,262 @@
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import 'reflect-metadata';
+import { DataSource } from 'typeorm';
+import { entities } from 'src/database/data-source';
+
+/**
+ * Guards the hand-written MySQL migration against the entities.
+ *
+ * `migration:generate` normally does this comparison for you, but it needs a
+ * live MySQL server to diff against. This spec does the equivalent offline:
+ * it builds the entity metadata for the MySQL driver (no connection required)
+ * and checks every column, type and nullability against the DDL in the
+ * migration - so a column added to an entity and forgotten in the migration
+ * fails CI instead of surfacing as a runtime error in production.
+ *
+ * It does not replace running `npm run migration:run` against a real MySQL 8;
+ * it catches the drift that causes most migration bugs.
+ */
+
+const MIGRATIONS_DIR = join(__dirname, '..', 'src', 'database', 'migrations');
+
+const MIGRATION_PATH = join(
+  __dirname,
+  '..',
+  'src',
+  'database',
+  'migrations',
+  '1757980800000-InitSchema.ts',
+);
+
+/**
+ * The migration writes its DDL inside template literals, so every backtick in
+ * the file is escaped as a backslash-backtick. Normalise to plain SQL first.
+ */
+function readMigrationSql(): string {
+  return readFileSync(MIGRATION_PATH, 'utf8').replaceAll('\\`', '`');
+}
+
+interface ParsedColumn {
+  type: string;
+  nullable: boolean;
+}
+
+/** Extracts `CREATE TABLE` bodies from the migration into column maps. */
+function parseMigration(sql: string): Map<string, Map<string, ParsedColumn>> {
+  const tables = new Map<string, Map<string, ParsedColumn>>();
+  const tablePattern = /CREATE TABLE `(\w+)` \(([\s\S]*?)\n\s*\) ENGINE=InnoDB/g;
+
+  let tableMatch: RegExpExecArray | null;
+
+  while ((tableMatch = tablePattern.exec(sql)) !== null) {
+    const [, tableName, body] = tableMatch;
+    const columns = new Map<string, ParsedColumn>();
+
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim().replace(/,$/, '');
+
+      // Skip index and key declarations - only column definitions here.
+      if (/^(PRIMARY KEY|UNIQUE INDEX|INDEX|KEY|CONSTRAINT)/i.test(line)) continue;
+
+      const columnMatch = /^`(\w+)`\s+([A-Z]+)(?:\([\d,]+\))?(.*)$/.exec(line);
+      if (!columnMatch) continue;
+
+      const [, name, type, rest] = columnMatch;
+      columns.set(name, {
+        type: type.toUpperCase(),
+        nullable: !/\bNOT NULL\b/i.test(rest),
+      });
+    }
+
+    tables.set(tableName, columns);
+  }
+
+  return tables;
+}
+
+/**
+ * The schema the migrations produce, replaying every migration's `up()` in
+ * timestamp order: CREATE TABLE from any file, then ADD / DROP COLUMN from later
+ * ones. Without this, a column added by a follow-up migration would be reported
+ * as missing.
+ */
+function parseAllMigrations(): Map<string, Map<string, ParsedColumn>> {
+  const files = readdirSync(MIGRATIONS_DIR)
+    .filter((file) => /^\d+-.+\.ts$/.test(file))
+    .sort();
+
+  const tables = new Map<string, Map<string, ParsedColumn>>();
+
+  for (const file of files) {
+    const source = readFileSync(join(MIGRATIONS_DIR, file), 'utf8').replaceAll('\\`', '`');
+    const up = source.split('public async down')[0];
+
+    for (const [name, columns] of parseMigration(up)) {
+      tables.set(name, columns);
+    }
+
+    const addPattern = /ALTER TABLE `(\w+)` ADD `(\w+)` ([A-Z]+)(?:\([\d,]+\))?([^'"`]*)/g;
+    for (const match of up.matchAll(addPattern)) {
+      const [, table, column, type, rest] = match;
+      tables.get(table)?.set(column, {
+        type: type.toUpperCase(),
+        nullable: !/\bNOT NULL\b/i.test(rest),
+      });
+    }
+
+    for (const match of up.matchAll(/ALTER TABLE `(\w+)` DROP COLUMN `(\w+)`/g)) {
+      tables.get(match[1])?.delete(match[2]);
+    }
+  }
+
+  return tables;
+}
+
+/** TypeORM metadata type -> the MySQL keyword the migration should use. */
+const TYPE_MAP: Record<string, string> = {
+  int: 'INT',
+  varchar: 'VARCHAR',
+  text: 'TEXT',
+  decimal: 'DECIMAL',
+  boolean: 'TINYINT',
+  datetime: 'DATETIME',
+  smallint: 'SMALLINT',
+};
+
+describe('InitSchema migration matches the entities', () => {
+  let migrationTables: Map<string, Map<string, ParsedColumn>>;
+  let dataSource: DataSource;
+
+  beforeAll(async () => {
+    migrationTables = parseAllMigrations();
+
+    // Metadata only - never connects, so this runs without a MySQL server.
+    dataSource = new DataSource({
+      type: 'mysql',
+      host: 'localhost',
+      database: 'plateo',
+      entities,
+    });
+    await (dataSource as unknown as { buildMetadatas: () => Promise<void> }).buildMetadatas();
+  });
+
+  it('creates all seven Week 1 tables', () => {
+    expect([...migrationTables.keys()].sort()).toEqual([
+      'categories',
+      'dish_ingredients',
+      'dishes',
+      'ingredients',
+      'restaurant_users',
+      'restaurants',
+      'users',
+    ]);
+  });
+
+  it('defines a table for every entity', () => {
+    for (const metadata of dataSource.entityMetadatas) {
+      expect(migrationTables.has(metadata.tableName)).toBe(true);
+    }
+  });
+
+  it('defines every entity column, with matching type and nullability', () => {
+    const problems: string[] = [];
+
+    for (const metadata of dataSource.entityMetadatas) {
+      const columns = migrationTables.get(metadata.tableName);
+      if (!columns) continue;
+
+      for (const column of metadata.columns) {
+        const migrationColumn = columns.get(column.databaseName);
+
+        if (!migrationColumn) {
+          problems.push(`${metadata.tableName}.${column.databaseName} is missing`);
+          continue;
+        }
+
+        const expectedType = TYPE_MAP[String(column.type)];
+
+        if (expectedType && migrationColumn.type !== expectedType) {
+          problems.push(
+            `${metadata.tableName}.${column.databaseName} is ${migrationColumn.type}, entity says ${expectedType}`,
+          );
+        }
+
+        if (migrationColumn.nullable !== column.isNullable) {
+          problems.push(
+            `${metadata.tableName}.${column.databaseName} nullability differs ` +
+              `(migration: ${migrationColumn.nullable}, entity: ${column.isNullable})`,
+          );
+        }
+      }
+    }
+
+    expect(problems).toEqual([]);
+  });
+
+  it('adds no columns the entities do not declare', () => {
+    const problems: string[] = [];
+
+    for (const metadata of dataSource.entityMetadatas) {
+      const columns = migrationTables.get(metadata.tableName);
+      if (!columns) continue;
+
+      const entityColumns = new Set(metadata.columns.map((column) => column.databaseName));
+
+      for (const name of columns.keys()) {
+        if (!entityColumns.has(name)) {
+          problems.push(`${metadata.tableName}.${name} exists only in the migration`);
+        }
+      }
+    }
+
+    expect(problems).toEqual([]);
+  });
+
+  it('uses DECIMAL for money and nutrition, never a float type', () => {
+    const sql = readMigrationSql();
+
+    expect(sql).toMatch(/`price` DECIMAL\(10,2\)/);
+    expect(sql).toMatch(/`protein_grams` DECIMAL\(8,2\)/);
+    expect(sql).toMatch(/`calories` DECIMAL\(8,2\)/);
+    expect(sql).toMatch(/`carbs_grams` DECIMAL\(8,2\)/);
+    expect(sql).toMatch(/`fat_grams` DECIMAL\(8,2\)/);
+    expect(sql).toMatch(/`quantity` DECIMAL\(10,3\)/);
+
+    // Only the DDL itself - the file's own comments mention FLOAT/DOUBLE to
+    // explain why they are not used.
+    const ddl = [...sql.matchAll(/CREATE TABLE[\s\S]*?ENGINE=InnoDB/g)]
+      .map((match) => match[0])
+      .join('\n');
+
+    expect(ddl).not.toMatch(/\b(FLOAT|DOUBLE|REAL)\b/);
+  });
+
+  it('constrains every tenant-owned table with a restaurant foreign key', () => {
+    const sql = readMigrationSql();
+
+    for (const table of ['categories', 'ingredients', 'dishes', 'restaurant_users']) {
+      expect(sql).toContain(`ALTER TABLE \`${table}\``);
+    }
+
+    expect(sql).toMatch(/FK_categories_restaurant[\s\S]*?REFERENCES `restaurants`/);
+    expect(sql).toMatch(/FK_ingredients_restaurant[\s\S]*?REFERENCES `restaurants`/);
+    expect(sql).toMatch(/FK_dishes_restaurant[\s\S]*?REFERENCES `restaurants`/);
+  });
+
+  it('prevents duplicate user-restaurant memberships', () => {
+    const sql = readMigrationSql();
+
+    expect(sql).toMatch(
+      /UNIQUE INDEX `UQ_restaurant_users_user_restaurant` \(`user_id`, `restaurant_id`\)/,
+    );
+  });
+
+  it('drops everything it creates', () => {
+    const sql = readMigrationSql();
+    const created = [...sql.matchAll(/CREATE TABLE `(\w+)`/g)].map((match) => match[1]);
+    const dropped = [...sql.matchAll(/DROP TABLE `(\w+)`/g)].map((match) => match[1]);
+
+    expect(dropped.sort()).toEqual(created.sort());
+  });
+});
