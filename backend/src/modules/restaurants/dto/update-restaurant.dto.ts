@@ -16,8 +16,10 @@ const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? val
 /**
  * Partial update of the authenticated restaurant's profile.
  *
- * `id`, `slug` and `createdAt` are intentionally absent: the slug is derived
- * server-side from the name so it cannot be squatted or collided with by input.
+ * `id`, `slug`, `publicSlug` and `createdAt` are intentionally absent: the slug
+ * is derived server-side from the name so it cannot be squatted or collided with
+ * by input, and `publicSlug` is permanent. The global ValidationPipe rejects
+ * any of them in a request body with 400.
  */
 export class UpdateRestaurantDto {
   @ApiPropertyOptional({ example: 'The Green Bowl', minLength: 2, maxLength: 150 })

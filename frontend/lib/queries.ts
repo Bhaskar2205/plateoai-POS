@@ -15,6 +15,7 @@ import type {
   Restaurant,
   RestaurantMember,
   RestaurantStats,
+  RestaurantTable,
 } from './types';
 
 /**
@@ -30,6 +31,7 @@ export const queryKeys = {
   dishes: ['dishes'] as const,
   ingredients: ['ingredients'] as const,
   dishIngredients: (dishId: number) => ['dishes', dishId, 'ingredients'] as const,
+  tables: ['tables'] as const,
 };
 
 // --- Restaurant --------------------------------------------------------------
@@ -274,3 +276,95 @@ export interface DishIngredientLine {
   quantity: number;
   unit: string;
 }
+
+// --- Tables & QR codes -------------------------------------------------------
+
+/** Owner-only on the API (403 for other roles) - pass `enabled: false` for them. */
+export const useTables = ({ enabled = true }: { enabled?: boolean } = {}) =>
+  useQuery({
+    queryKey: queryKeys.tables,
+    queryFn: () => apiFetch<RestaurantTable[]>('/restaurants/me/tables'),
+    enabled,
+  });
+
+export interface TablePayload {
+  name?: string;
+  isActive?: boolean;
+}
+
+/** Replaces one table in the cached list, so the list needs no refetch to look right. */
+const replaceCachedTable = (tables: RestaurantTable[] | undefined, table: RestaurantTable) =>
+  tables?.map((current) => (current.id === table.id ? table : current));
+
+export const useSaveTable = (options?: UseMutationOptions<RestaurantTable, Error, {
+  id?: number;
+  body: TablePayload;
+}>) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, body }) =>
+      apiFetch<RestaurantTable>(id ? `/restaurants/me/tables/${id}` : '/restaurants/me/tables', {
+        method: id ? 'PATCH' : 'POST',
+        body,
+      }),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tables });
+      options?.onSuccess?.(...args);
+    },
+  });
+};
+
+/** Activate/deactivate, updated optimistically like the dish availability switch. */
+export const useToggleTable = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
+      apiFetch<RestaurantTable>(`/restaurants/me/tables/${id}`, { method: 'PATCH', body: { isActive } }),
+    onMutate: async ({ id, isActive }) => {
+      await queryClient.cancelQueries({ queryKey: queryKeys.tables, exact: true });
+      const previous = queryClient.getQueryData<RestaurantTable[]>(queryKeys.tables);
+
+      queryClient.setQueryData<RestaurantTable[]>(queryKeys.tables, (current) =>
+        current?.map((table) => (table.id === id ? { ...table, isActive } : table)),
+      );
+
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKeys.tables, context.previous);
+      }
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tables });
+    },
+  });
+};
+
+export const useRegenerateTableQr = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) =>
+      apiFetch<RestaurantTable>(`/restaurants/me/tables/${id}/regenerate-qr`, { method: 'POST' }),
+    onSuccess: (table) => {
+      // Swap the new URL in straight away: the old QR code is already dead.
+      queryClient.setQueryData<RestaurantTable[]>(queryKeys.tables, (current) => replaceCachedTable(current, table));
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tables });
+    },
+  });
+};
+
+export const useDeleteTable = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => apiFetch<void>(`/restaurants/me/tables/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tables });
+    },
+  });
+};

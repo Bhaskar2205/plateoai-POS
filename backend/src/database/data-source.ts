@@ -9,6 +9,8 @@ import { Category } from 'src/modules/categories/entities/category.entity';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 import { Ingredient } from 'src/modules/ingredients/entities/ingredient.entity';
+import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
+import { mysqlSslConnectionOptions } from './mysql-ssl';
 import { mysqlUtcConnectionOptions } from './mysql-utc';
 
 loadEnv({ quiet: true });
@@ -25,6 +27,7 @@ export const entities = [
   Dish,
   Ingredient,
   DishIngredient,
+  RestaurantTable,
 ];
 
 export const buildDataSourceOptions = (): DataSourceOptions => {
@@ -45,6 +48,8 @@ export const buildDataSourceOptions = (): DataSourceOptions => {
     charset: 'utf8mb4',
     // UTC on the wire *and* in the MySQL session - see mysql-utc.ts.
     ...mysqlUtcConnectionOptions,
+    // TLS for managed MySQL - see mysql-ssl.ts.
+    ...mysqlSslConnectionOptions(database.ssl),
   };
 };
 

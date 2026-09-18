@@ -1,10 +1,12 @@
 'use client';
 
 import {
+  Armchair,
   Carrot,
   LayoutDashboard,
   LayoutList,
   LogOut,
+  QrCode,
   Receipt,
   Settings,
   Store,
@@ -16,6 +18,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/cn';
+import { TABLE_ADMIN_ROLES } from '@/lib/permissions';
 import type { UserRole } from '@/lib/types';
 import { Avatar, PlateoWordmark } from './brand';
 
@@ -25,6 +28,8 @@ interface NavItem {
   icon: LucideIcon;
   /** Shown for sections that are not built yet, so the item never looks broken. */
   badge?: string;
+  /** Only these roles see the item; omitted means everyone. */
+  roles?: UserRole[];
 }
 
 export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
@@ -35,6 +40,8 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: '/restaurant/menu', label: 'Menu', icon: UtensilsCrossed },
       { href: '/restaurant/menu/categories', label: 'Categories', icon: LayoutList },
       { href: '/restaurant/menu/ingredients', label: 'Ingredients', icon: Carrot },
+      { href: '/restaurant/tables', label: 'Tables', icon: Armchair, roles: TABLE_ADMIN_ROLES },
+      { href: '/restaurant/qr-codes', label: 'QR Codes', icon: QrCode, roles: TABLE_ADMIN_ROLES },
       { href: '/restaurant/orders', label: 'Orders', icon: Receipt, badge: 'Soon' },
     ],
   },
@@ -89,6 +96,7 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             </p>
             <ul className="space-y-0.5">
               {section.items.map((item) => {
+                if (item.roles && !(session && item.roles.includes(session.user.role))) return null;
                 const Icon = item.icon;
                 const isActive = item.href === active;
 

@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { ConvertTimestampsToUtc1758153600000 } from 'src/database/migrations/1758153600000-ConvertTimestampsToUtc';
+import { AddRestaurantPublicSlug1758326400000 } from 'src/database/migrations/1758326400000-AddRestaurantPublicSlug';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import {
   api,
@@ -223,6 +224,49 @@ describe(`Driver-specific behaviour (running on ${isMysqlTestRun ? 'MySQL' : 'SQ
         }
       },
     );
+  });
+
+  (isMysqlTestRun ? describe : describe.skip)('restaurant public slug migration', () => {
+    it('backfills public_slug from slug without changing updated_at or any other column', async () => {
+      await registerOwner(app, { restaurantName: 'Backfill Alpha' });
+      await registerOwner(app, { restaurantName: 'Backfill Beta' });
+
+      const rows = () =>
+        ctx.dataSource.query(
+          "SELECT id, name, slug, description, address, phone, logo_url, status, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') AS created_at, DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s.%f') AS updated_at FROM restaurants ORDER BY id",
+        );
+      const before = await rows();
+
+      const migration = new AddRestaurantPublicSlug1758326400000();
+      const queryRunner = ctx.dataSource.createQueryRunner();
+      try {
+        await migration.down(queryRunner);
+        const [columnGone] = await ctx.dataSource.query(
+          "SELECT COUNT(*) AS n FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurants' AND COLUMN_NAME = 'public_slug'",
+        );
+        expect(Number(columnGone.n)).toBe(0);
+        expect(await rows()).toEqual(before);
+
+        // Sleep past a second so an accidental ON UPDATE CURRENT_TIMESTAMP would show.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        await migration.up(queryRunner);
+      } finally {
+        await queryRunner.release();
+      }
+
+      expect(await rows()).toEqual(before);
+      const slugs = await ctx.dataSource.query('SELECT slug, public_slug FROM restaurants');
+      expect(slugs.every((row: { slug: string; public_slug: string }) => row.public_slug === row.slug)).toBe(true);
+
+      const [column] = await ctx.dataSource.query(
+        "SELECT IS_NULLABLE AS nullable FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurants' AND COLUMN_NAME = 'public_slug'",
+      );
+      expect(column.nullable).toBe('NO');
+      const [index] = await ctx.dataSource.query(
+        "SELECT NON_UNIQUE AS nonUnique FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurants' AND INDEX_NAME = 'UQ_restaurants_public_slug'",
+      );
+      expect(Number(index.nonUnique)).toBe(0);
+    });
   });
 
   describe('referential actions', () => {

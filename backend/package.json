@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Plateo multi-restaurant QR ordering platform - backend API",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
@@ -15,6 +18,9 @@
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
     "migration:show": "npm run typeorm -- migration:show",
+    "migration:show:prod": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:show",
+    "migration:run:prod": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:run",
+    "migration:revert:prod": "node ./node_modules/typeorm/cli.js -d dist/database/data-source.js migration:revert",
     "seed": "ts-node -r tsconfig-paths/register src/database/seeds/seed.ts",
     "test": "jest",
     "test:watch": "jest --watch",

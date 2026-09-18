@@ -4,17 +4,19 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { Test } from '@nestjs/testing';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { Module } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { configureApp } from 'src/bootstrap';
+import { ClientIpThrottlerGuard } from 'src/common/guards/client-ip-throttler.guard';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
 import { buildThrottlerOptions } from 'src/common/throttling';
 import { configuration, type AppConfig } from 'src/config/configuration';
 import { entities } from 'src/database/data-source';
+import { mysqlSslConnectionOptions } from 'src/database/mysql-ssl';
 import { mysqlUtcConnectionOptions } from 'src/database/mysql-utc';
 import { HealthController } from 'src/health/health.controller';
 import { AuthController } from 'src/modules/auth/auth.controller';
@@ -25,6 +27,7 @@ import { DishesModule } from 'src/modules/dishes/dishes.module';
 import { IngredientsModule } from 'src/modules/ingredients/ingredients.module';
 import { PublicMenuModule } from 'src/modules/public-menu/public-menu.module';
 import { RestaurantsModule } from 'src/modules/restaurants/restaurants.module';
+import { TablesModule } from 'src/modules/tables/tables.module';
 import { UsersModule } from 'src/modules/users/users.module';
 
 /**
@@ -70,13 +73,20 @@ function testDatabaseOptions(): TypeOrmModuleOptions {
     };
   }
 
+  // dropSchema wipes the target. DB_DATABASE may come from backend/.env (the dev
+  // database), so refuse anything that is not explicitly a throwaway *_test database.
+  const database = process.env.DB_DATABASE ?? 'plateo_test';
+  if (!/_test$/.test(database)) {
+    throw new Error(`Refusing to run the MySQL e2e suite against "${database}": it drops the schema. Set DB_DATABASE to a *_test database.`);
+  }
+
   return {
     type: 'mysql',
     host: process.env.DB_HOST ?? '127.0.0.1',
     port: Number.parseInt(process.env.DB_PORT ?? '3306', 10),
     username: process.env.DB_USERNAME ?? 'root',
     password: process.env.DB_PASSWORD ?? '',
-    database: process.env.DB_DATABASE ?? 'plateo_test',
+    database,
     entities,
     migrations: [__dirname + '/../src/database/migrations/*{.ts,.js}'],
     migrationsTableName: 'plateo_migrations',
@@ -89,6 +99,8 @@ function testDatabaseOptions(): TypeOrmModuleOptions {
     charset: 'utf8mb4',
     // Same UTC session setup as production - see src/database/mysql-utc.ts.
     ...mysqlUtcConnectionOptions,
+    // Same DB_SSL* handling as production, so TLS can be exercised against MySQL too.
+    ...mysqlSslConnectionOptions(configuration().database.ssl),
   };
 }
 
@@ -111,6 +123,7 @@ function testDatabaseOptions(): TypeOrmModuleOptions {
     IngredientsModule,
     DishesModule,
     PublicMenuModule,
+    TablesModule,
   ],
   controllers: [AuthController, HealthController],
   providers: [
@@ -132,7 +145,7 @@ export class TestAppModule {}
     // The production configuration, not a copy - see common/throttling.ts.
     ThrottlerModule.forRoot(buildThrottlerOptions()),
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [{ provide: APP_GUARD, useClass: ClientIpThrottlerGuard }],
 })
 class ThrottledTestAppModule {}
 

@@ -6,8 +6,8 @@ import { DietType } from 'src/common/enums';
  * an anonymous diner; nothing is serialised from an entity directly, so a column
  * added to `restaurants` or `dishes` later cannot leak here by accident.
  *
- * Never add: restaurant ids, status, phone, members, emails, timestamps, or
- * anything describing unavailable dishes or hidden categories.
+ * Never add: restaurant ids, status, phone, members, emails, timestamps, table
+ * ids or QR tokens, or anything describing unavailable dishes or hidden categories.
  */
 
 export class PublicRestaurantDto {
@@ -25,6 +25,11 @@ export class PublicRestaurantDto {
 
   @ApiProperty({ nullable: true, example: 'https://cdn.example.com/logo.png' })
   logoUrl: string | null;
+}
+
+export class PublicTableDto {
+  @ApiProperty({ example: 'Table 01' })
+  name: string;
 }
 
 export class PublicIngredientDto {
@@ -120,6 +125,13 @@ export class PublicCategoryDto {
 export class PublicMenuDto {
   @ApiProperty({ type: PublicRestaurantDto })
   restaurant: PublicRestaurantDto;
+
+  @ApiProperty({
+    type: PublicTableDto,
+    nullable: true,
+    description: 'The table from `?table=`, or null when the menu was requested without one.',
+  })
+  table: PublicTableDto | null;
 
   @ApiProperty({ example: 'INR' })
   currency: string;

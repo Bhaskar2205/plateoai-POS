@@ -14,7 +14,7 @@ import {
 /** Every key the public menu is allowed to contain, at any depth. */
 const ALLOWED_KEYS = new Set([
   // PublicMenuDto
-  'restaurant', 'currency', 'categories', 'uncategorisedDishes', 'disclaimer',
+  'restaurant', 'table', 'currency', 'categories', 'uncategorisedDishes', 'disclaimer',
   // PublicRestaurantDto
   'name', 'slug', 'description', 'address', 'logoUrl',
   // PublicCategoryDto

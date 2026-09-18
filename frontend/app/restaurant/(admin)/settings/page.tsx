@@ -22,7 +22,8 @@ export default function SettingsPage() {
 
   if (!session) return null;
 
-  const menuPath = `/menu/${session.restaurant.slug}`;
+  // Shared and printed, so it must be the permanent slug.
+  const menuPath = `/menu/${session.restaurant.publicSlug}`;
   const menuUrl = typeof window === 'undefined' ? menuPath : `${window.location.origin}${menuPath}`;
 
   const copy = async () => {
@@ -55,7 +56,7 @@ export default function SettingsPage() {
         <Card>
           <CardHeader
             title="Public menu link"
-            description="Share this link or print it as a QR code. It updates when you rename your restaurant."
+            description="Share this link or print it. It never changes, even if you rename your restaurant."
           />
           <CardBody className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg border border-line bg-ground px-3 py-2">

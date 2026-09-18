@@ -38,6 +38,7 @@ async function seed(source: DataSource): Promise<void> {
       manager.getRepository(Restaurant).create({
         name: 'The Green Bowl',
         slug: slugify('The Green Bowl'),
+        publicSlug: slugify('The Green Bowl'),
         description: 'Seasonal bowls and salads, made fresh every morning.',
         address: 'C-12, Malviya Nagar, Jaipur, Rajasthan 302017',
         phone: '+919876543210',

@@ -151,3 +151,13 @@ export const ingredientSchema = z.object({
   allergenInfo: optionalText(255),
 });
 export type IngredientValues = z.infer<typeof ingredientSchema>;
+
+export const tableSchema = z.object({
+  // Mirrors the API: surrounding and repeated spaces are collapsed before checking.
+  name: z
+    .string()
+    .transform((value) => value.trim().replace(/\s+/g, ' '))
+    .pipe(requiredText('Table name', 60)),
+  isActive: z.boolean(),
+});
+export type TableValues = z.input<typeof tableSchema>;

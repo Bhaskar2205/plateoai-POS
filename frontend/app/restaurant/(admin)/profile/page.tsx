@@ -99,7 +99,14 @@ export default function ProfilePage() {
                   <FormError error={update.error} />
 
                   <FormSection title="Basics">
-                    <TextField id="profile-name" label="Restaurant name" required error={errors.name?.message} {...register('name')} />
+                    <TextField
+                      id="profile-name"
+                      label="Restaurant name"
+                      required
+                      hint="Renaming keeps your permanent menu link and table QR codes working."
+                      error={errors.name?.message}
+                      {...register('name')}
+                    />
                     <TextAreaField
                       id="profile-description"
                       label="Description"
@@ -237,7 +244,8 @@ export default function ProfilePage() {
 }
 
 function IdentityCard({ restaurant }: { restaurant: Restaurant }) {
-  const menuPath = `/menu/${restaurant.slug}`;
+  // The permanent link: it keeps working after a rename, unlike the current slug.
+  const menuPath = `/menu/${restaurant.publicSlug}`;
 
   return (
     <Card className="overflow-hidden">
@@ -258,7 +266,9 @@ function IdentityCard({ restaurant }: { restaurant: Restaurant }) {
           )}
         </div>
         <div className="flex min-w-0 max-w-full flex-col items-start gap-1 sm:items-end">
-          <span className="text-xs text-muted">Public menu</span>
+          <span className="text-xs text-muted" title="This link never changes, even if you rename your restaurant.">
+            Permanent menu link
+          </span>
           <Link
             href={menuPath as Route}
             target="_blank"

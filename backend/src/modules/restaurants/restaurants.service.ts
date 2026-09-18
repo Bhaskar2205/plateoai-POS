@@ -43,25 +43,36 @@ export class RestaurantsService {
   }
 
   /**
-   * Builds a slug that does not collide with an existing restaurant.
+   * Builds a slug that does not collide with any other restaurant.
    *
-   * Only rows whose slug starts with the base are loaded, so this stays a single
-   * indexed lookup rather than a full table scan. The unique index on
-   * `restaurants.slug` remains the real guarantee - a concurrent insert that
-   * wins the race surfaces as a 409 from the exception filter.
+   * `slug` and `publicSlug` share one namespace: a value that is another
+   * restaurant's current slug *or* permanent public slug is taken, so a menu URL
+   * can never match two restaurants. The restaurant being renamed
+   * (`ownRestaurantId`) does not block itself - renaming back to its original
+   * name reclaims its own slug instead of getting a `-2` suffix.
+   *
+   * Only rows starting with the base are loaded (both columns are indexed). The
+   * unique indexes remain the real guarantee - a concurrent insert that wins the
+   * race surfaces as a 409 from the exception filter.
    */
-  async generateUniqueSlug(name: string, manager?: EntityManager): Promise<string> {
+  async generateUniqueSlug(
+    name: string,
+    manager?: EntityManager,
+    ownRestaurantId?: number,
+  ): Promise<string> {
     const repository = manager ? manager.getRepository(Restaurant) : this.restaurantsRepository;
     const base = slugify(name);
 
     const conflicts = await repository.find({
-      where: { slug: Like(`${base}%`) },
-      select: { slug: true },
+      where: [{ slug: Like(`${base}%`) }, { publicSlug: Like(`${base}%`) }],
+      select: { id: true, slug: true, publicSlug: true },
     });
 
     return uniqueSlug(
       base,
-      conflicts.map((row) => row.slug),
+      conflicts
+        .filter((row) => row.id !== ownRestaurantId)
+        .flatMap((row) => [row.slug, row.publicSlug]),
     );
   }
 
@@ -72,10 +83,13 @@ export class RestaurantsService {
   ): Promise<Restaurant> {
     const repository = manager.getRepository(Restaurant);
     const name = input.name.trim();
+    const slug = await this.generateUniqueSlug(name, manager);
 
     const restaurant = repository.create({
       name,
-      slug: await this.generateUniqueSlug(name, manager),
+      slug,
+      // Fixed for the life of the restaurant; nothing ever writes it again.
+      publicSlug: slug,
       address: input.address?.trim() || null,
       phone: input.phone?.trim() || null,
       status: RestaurantStatus.ACTIVE,
@@ -145,8 +159,9 @@ export class RestaurantsService {
   }
 
   /**
-   * Updates the active restaurant's profile. Renaming regenerates the slug so
-   * the public menu URL keeps tracking the display name.
+   * Updates the active restaurant's profile. Renaming regenerates `slug`, the
+   * canonical menu URL that tracks the display name. `publicSlug` is never
+   * touched, so QR codes and links already handed out keep working.
    */
   async updateRestaurant(
     restaurantId: number,
@@ -170,7 +185,7 @@ export class RestaurantsService {
 
     if (dto.name !== undefined && dto.name !== restaurant.name) {
       restaurant.name = dto.name;
-      restaurant.slug = await this.generateUniqueSlug(dto.name);
+      restaurant.slug = await this.generateUniqueSlug(dto.name, undefined, restaurant.id);
     }
 
     if (dto.description !== undefined) restaurant.description = dto.description || null;

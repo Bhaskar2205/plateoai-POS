@@ -24,11 +24,29 @@ export class Restaurant {
 
   @ApiProperty({
     example: 'the-green-bowl',
-    description: 'Unique, URL-safe identifier derived from the name. Used by future QR menu URLs.',
+    description:
+      'Unique, URL-safe identifier derived from the current name. Follows renames; used as the ' +
+      'canonical public menu URL.',
   })
   @Index('UQ_restaurants_slug', { unique: true })
   @Column({ type: 'varchar', length: 190 })
   slug: string;
+
+  /**
+   * Permanent public identifier, set once at registration and never changed by
+   * profile edits - table QR codes and shared menu links use it, so they survive
+   * renames. It shares one namespace with `slug` (see `RestaurantsService`), so
+   * a public menu URL can never resolve to two restaurants.
+   */
+  @ApiProperty({
+    example: 'the-green-bowl',
+    description:
+      'Permanent menu identifier. Set when the restaurant is created and never changes, so printed ' +
+      'QR codes and shared links keep working after a rename. Read-only.',
+  })
+  @Index('UQ_restaurants_public_slug', { unique: true })
+  @Column({ type: 'varchar', length: 190, name: 'public_slug' })
+  publicSlug: string;
 
   @ApiProperty({ nullable: true, example: 'Seasonal bowls and salads.' })
   @Column({ type: 'text', nullable: true })

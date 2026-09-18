@@ -105,6 +105,16 @@ function parseAllMigrations(): Map<string, Map<string, ParsedColumn>> {
       });
     }
 
+    // MODIFY runs after ADD in a migration's up(), e.g. add nullable -> backfill -> NOT NULL.
+    const modifyPattern = /ALTER TABLE `(\w+)` MODIFY `(\w+)` ([A-Z]+)(?:\([\d,]+\))?([^'"`]*)/g;
+    for (const match of up.matchAll(modifyPattern)) {
+      const [, table, column, type, rest] = match;
+      tables.get(table)?.set(column, {
+        type: type.toUpperCase(),
+        nullable: !/\bNOT NULL\b/i.test(rest),
+      });
+    }
+
     for (const match of up.matchAll(/ALTER TABLE `(\w+)` DROP COLUMN `(\w+)`/g)) {
       tables.get(match[1])?.delete(match[2]);
     }
@@ -141,16 +151,50 @@ describe('InitSchema migration matches the entities', () => {
     await (dataSource as unknown as { buildMetadatas: () => Promise<void> }).buildMetadatas();
   });
 
-  it('creates all seven Week 1 tables', () => {
+  it('creates the seven Week 1 tables plus restaurant tables', () => {
     expect([...migrationTables.keys()].sort()).toEqual([
       'categories',
       'dish_ingredients',
       'dishes',
       'ingredients',
+      'restaurant_tables',
       'restaurant_users',
       'restaurants',
       'users',
     ]);
+  });
+
+  it('scopes restaurant tables to their restaurant and keeps QR tokens unique and case-sensitive', () => {
+    const sql = readFileSync(join(MIGRATIONS_DIR, '1758240000000-CreateRestaurantTables.ts'), 'utf8').replaceAll(
+      '\\`',
+      '`',
+    );
+
+    expect(sql).toMatch(/UNIQUE INDEX `UQ_restaurant_tables_restaurant_name` \(`restaurant_id`, `name`\)/);
+    expect(sql).toMatch(/UNIQUE INDEX `UQ_restaurant_tables_qr_token` \(`qr_token`\)/);
+    expect(sql).toMatch(/`qr_token` VARCHAR\(64\) CHARACTER SET ascii COLLATE ascii_bin NOT NULL/);
+    expect(sql).toMatch(
+      /FK_restaurant_tables_restaurant`[\s\S]*?REFERENCES `restaurants`\(`id`\) ON DELETE CASCADE/,
+    );
+    expect(sql).toMatch(/DROP TABLE `restaurant_tables`/);
+  });
+
+  it('adds a unique, backfilled public slug without touching updated_at', () => {
+    const sql = readFileSync(join(MIGRATIONS_DIR, '1758326400000-AddRestaurantPublicSlug.ts'), 'utf8');
+    const up = sql.split('public async down')[0];
+    const down = sql.split('public async down')[1];
+
+    expect(up).toMatch(/ADD `public_slug` VARCHAR\(190\) NULL AFTER `slug`/);
+    expect(up).toMatch(/UPDATE `restaurants` SET `public_slug` = `slug`, `updated_at` = `updated_at`/);
+    expect(up).toMatch(/MODIFY `public_slug` VARCHAR\(190\) NOT NULL/);
+    expect(up).toMatch(/CREATE UNIQUE INDEX `UQ_restaurants_public_slug` ON `restaurants` \(`public_slug`\)/);
+    // Backfill before NOT NULL, NOT NULL before the unique index.
+    expect(up.indexOf('UPDATE')).toBeLessThan(up.indexOf('MODIFY'));
+    expect(up.indexOf('MODIFY')).toBeLessThan(up.indexOf('CREATE UNIQUE INDEX'));
+    // No WHERE-less UPDATE of anything but the new column.
+    expect(up.match(/UPDATE `/g)).toHaveLength(1);
+    expect(down).toMatch(/DROP INDEX `UQ_restaurants_public_slug` ON `restaurants`/);
+    expect(down).toMatch(/DROP COLUMN `public_slug`/);
   });
 
   it('defines a table for every entity', () => {

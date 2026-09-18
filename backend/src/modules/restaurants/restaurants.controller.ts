@@ -34,7 +34,8 @@ export class RestaurantsController {
     summary: 'Update the authenticated restaurant profile',
     description:
       'Owners only. Changing the name regenerates the unique slug; duplicate names get a numeric ' +
-      'suffix. `status` is reserved for Plateo support (SUPER_ADMIN) - see the field description.',
+      'suffix. `publicSlug` never changes, so QR codes and shared menu links survive a rename. ' +
+      '`status` is reserved for Plateo support (SUPER_ADMIN) - see the field description.',
   })
   @ApiOkResponse({ type: Restaurant })
   updateMyRestaurant(

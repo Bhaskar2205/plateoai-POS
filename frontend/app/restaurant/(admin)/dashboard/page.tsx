@@ -188,7 +188,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      <PublicMenuLink slug={session.restaurant.slug} />
+      {/* Copyable, so it uses the permanent slug that survives a rename. */}
+      <PublicMenuLink slug={session.restaurant.publicSlug} />
     </div>
   );
 }

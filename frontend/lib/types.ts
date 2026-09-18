@@ -20,7 +20,10 @@ export interface AuthUser {
 export interface Restaurant {
   id: number;
   name: string;
+  /** Follows the name; the canonical public menu URL. */
   slug: string;
+  /** Permanent: set at registration, never changes. Use it for any link that is shared or printed. */
+  publicSlug: string;
   description: string | null;
   address: string | null;
   phone: string | null;
@@ -113,4 +116,20 @@ export interface DishIngredient {
   allergenInfo: string | null;
   quantity: number;
   unit: string;
+}
+
+/**
+ * A restaurant table. The QR token is never a field of its own: it only exists
+ * inside `menuUrl`, the link that is encoded into the printed QR code.
+ */
+export interface RestaurantTable {
+  id: number;
+  name: string;
+  isActive: boolean;
+  /** `/menu/<slug>?table=<identifier>` */
+  menuPath: string;
+  /** Absolute URL on the public Plateo origin - what the QR code encodes. */
+  menuUrl: string;
+  createdAt: string;
+  updatedAt: string;
 }

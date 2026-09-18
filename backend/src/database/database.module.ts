@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import type { AppConfig } from 'src/config/configuration';
 import { entities } from './data-source';
+import { mysqlSslConnectionOptions } from './mysql-ssl';
 import { mysqlUtcConnectionOptions } from './mysql-utc';
 
 /**
@@ -35,6 +36,8 @@ import { mysqlUtcConnectionOptions } from './mysql-utc';
           charset: 'utf8mb4',
           // UTC on the wire *and* in the MySQL session - see mysql-utc.ts.
           ...mysqlUtcConnectionOptions,
+          // TLS for managed MySQL - see mysql-ssl.ts.
+          ...mysqlSslConnectionOptions(database.ssl),
           autoLoadEntities: false,
         };
       },

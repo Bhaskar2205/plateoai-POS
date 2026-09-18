@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, Clock, MapPin, Search, TriangleAlert, X } from 'lucide-react';
+import { Armchair, ChevronDown, Clock, MapPin, Search, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import type { PublicDietType, PublicDish, PublicMenu } from '@/lib/public-menu';
@@ -216,8 +216,8 @@ export function PublicMenuView({ menu }: { menu: PublicMenu }) {
   );
 }
 
-function RestaurantHeader({ menu, totalDishes }: { menu: PublicMenu; totalDishes: number }) {
-  const { restaurant } = menu;
+/** The restaurant logo, or its initials when there is no logo or it fails to load. */
+export function RestaurantMark({ restaurant }: { restaurant: PublicMenu['restaurant'] }) {
   const [logoFailed, setLogoFailed] = useState(false);
   const initials = restaurant.name
     .split(/\s+/)
@@ -226,29 +226,46 @@ function RestaurantHeader({ menu, totalDishes }: { menu: PublicMenu; totalDishes
     .map((word) => word[0]?.toUpperCase())
     .join('');
 
+  return restaurant.logoUrl && !logoFailed ? (
+    // Restaurant-supplied URL on an arbitrary host; next/image would need every host allow-listed.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={restaurant.logoUrl}
+      alt={`${restaurant.name} logo`}
+      onError={() => setLogoFailed(true)}
+      className="size-16 shrink-0 rounded-2xl border border-line object-cover sm:size-20"
+    />
+  ) : (
+    <div
+      aria-hidden
+      className="grid size-16 shrink-0 place-items-center rounded-2xl bg-brand-600 text-xl font-semibold text-white sm:size-20 sm:text-2xl"
+    >
+      {initials}
+    </div>
+  );
+}
+
+function RestaurantHeader({ menu, totalDishes }: { menu: PublicMenu; totalDishes: number }) {
+  const { restaurant, table } = menu;
+
   return (
     <header className="border-b border-line bg-surface">
       <div className="mx-auto flex max-w-3xl items-start gap-4 px-4 py-6 sm:px-6 sm:py-8">
-        {restaurant.logoUrl && !logoFailed ? (
-          // Restaurant-supplied URL on an arbitrary host; next/image would need every host allow-listed.
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={restaurant.logoUrl}
-            alt={`${restaurant.name} logo`}
-            onError={() => setLogoFailed(true)}
-            className="size-16 shrink-0 rounded-2xl border border-line object-cover sm:size-20"
-          />
-        ) : (
-          <div
-            aria-hidden
-            className="grid size-16 shrink-0 place-items-center rounded-2xl bg-brand-600 text-xl font-semibold text-white sm:size-20 sm:text-2xl"
-          >
-            {initials}
-          </div>
-        )}
+        <RestaurantMark restaurant={restaurant} />
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold tracking-[0.14em] text-brand-600 uppercase">Menu</p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <p className="text-xs font-semibold tracking-[0.14em] text-brand-600 uppercase">Menu</p>
+            {table && (
+              <p className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-saffron-50 px-2.5 py-1 text-xs font-semibold text-saffron-600 ring-1 ring-saffron-100">
+                <Armchair className="size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">
+                  <span className="sr-only">You are at </span>
+                  {table.name}
+                </span>
+              </p>
+            )}
+          </div>
           <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink text-balance sm:text-3xl">{restaurant.name}</h1>
           {restaurant.description && (
             <p className="mt-1.5 max-w-prose text-sm text-muted">{restaurant.description}</p>

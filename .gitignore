@@ -5,7 +5,24 @@ node_modules/
 .env
 .env.local
 .env.*.local
+.env.*
 !.env.example
+
+# Database dumps and backups - they contain real account data.
+*.sql
+*.sql.gz
+*.dump
+backups/
+
+# Keys and certificates (e.g. a managed MySQL CA downloaded for DB_SSL_CA).
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+
+# Hosting CLI state
+.vercel/
 
 # Build output
 dist/
@@ -20,6 +37,8 @@ coverage/
 # Logs
 *.log
 npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Editor / OS
 .vscode/*
@@ -27,3 +46,5 @@ npm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+*.swp
+*.tmp

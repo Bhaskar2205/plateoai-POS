@@ -137,12 +137,17 @@ Edit `backend\.env`:
 | `NODE_ENV`             | `development` \| `test` \| `production`             | `development`            |
 | `PORT`                 | API port                                            | `4000`                   |
 | `CORS_ORIGINS`         | Comma-separated browser origins allowed to call it  | `http://localhost:3000`  |
+| `PUBLIC_WEB_URL`       | QR app origin encoded into table QR codes (https in production) | `https://app.plateoai.in` |
 | `SWAGGER_ENABLED`      | Serve Swagger UI                                    | `true`                   |
+| `TRUST_PROXY`          | Proxy hops in front of the API (empty = none; never `true` in production) | `1` |
+| `INTERNAL_PROXY_SECRET`| Shared with the frontend; rate-limits SSR public menus per diner IP (≥ 32 chars) | — |
 | `DB_HOST` / `DB_PORT`  | MySQL location                                      | `localhost` / `3306`     |
 | `DB_USERNAME`          | MySQL user                                          | `root`                   |
 | `DB_PASSWORD`          | MySQL password                                      | —                        |
 | `DB_DATABASE`          | Database name                                       | `plateo`                 |
 | `DB_SYNCHRONIZE`       | Must stay `false` — use migrations                  | `false`                  |
+| `DB_SSL` / `DB_SSL_CA` | TLS to managed MySQL; CA as PEM (`\n` escapes allowed). Required in production for a remote host | `true` / PEM |
+| `DB_SSL_REJECT_UNAUTHORIZED` | Verify the server certificate; `false` is refused in production | `true` |
 | `JWT_SECRET`           | Token signing key (≥ 32 chars in production)        | —                        |
 | `JWT_EXPIRES_IN`       | Access token lifetime                               | `1d`                     |
 | `LOGIN_THROTTLE_TTL`   | Login rate-limit window, seconds                    | `60`                     |
@@ -214,11 +219,20 @@ npm run dev
 
 Then open <http://localhost:3000/restaurant/register>.
 
-Production builds:
+Production builds (Node.js 22 LTS — pinned in both `package.json` files and `.nvmrc`):
 
 ```powershell
 cd backend ; npm run build ; npm run start:prod
 cd frontend ; npm run build ; npm run start
+```
+
+In production, run migrations from the compiled build — no `ts-node` or dev dependencies needed:
+
+```powershell
+cd backend
+npm run migration:show:prod
+npm run migration:run:prod
+npm run migration:revert:prod   # undo the most recent migration
 ```
 
 ---

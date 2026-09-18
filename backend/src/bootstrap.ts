@@ -1,14 +1,22 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ClassSerializerInterceptor } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { Express } from 'express';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import type { TrustProxySetting } from './config/configuration';
 
 /**
  * Global HTTP wiring shared by `main.ts` and the e2e test harness, so the tests
  * exercise the same pipes, filters and serialisation rules as production.
  */
 export function configureApp(app: INestApplication): INestApplication {
+  // Behind a load balancer or reverse proxy, `req.ip` is the proxy unless Express
+  // is told how many hops to trust - and the rate limiter keys on `req.ip`.
+  const trustProxy = app.get(ConfigService).get<TrustProxySetting>('trustProxy') ?? false;
+  (app.getHttpAdapter().getInstance() as Express).set('trust proxy', trustProxy);
+
   app.useGlobalPipes(
     new ValidationPipe({
       // Strip properties with no decorator, and reject requests that send them -

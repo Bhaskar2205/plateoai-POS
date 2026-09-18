@@ -118,6 +118,73 @@ describe('Restaurant profile (e2e)', () => {
         .expect(400);
     });
 
+    describe('permanent public slug', () => {
+      const me = async (token: string) =>
+        (await api(app).get('/restaurants/me').set(auth(token)).expect(200)).body;
+      const rename = async (token: string, name: string) =>
+        (await api(app).patch('/restaurants/me').set(auth(token)).send({ name }).expect(200)).body;
+
+      it('is set to the first slug at registration', async () => {
+        const created = await registerOwner(app, { restaurantName: 'Permanent Origin Cafe' });
+        const restaurant = await me(created.accessToken);
+
+        expect(restaurant.slug).toBe('permanent-origin-cafe');
+        expect(restaurant.publicSlug).toBe('permanent-origin-cafe');
+      });
+
+      it('never changes when the restaurant is renamed, while slug follows the name', async () => {
+        const created = await registerOwner(app, { restaurantName: 'Rename Twice Diner' });
+
+        const first = await rename(created.accessToken, 'Rename Twice Bistro');
+        expect(first).toMatchObject({ name: 'Rename Twice Bistro', slug: 'rename-twice-bistro', publicSlug: 'rename-twice-diner' });
+
+        const second = await rename(created.accessToken, 'Rename Twice Brasserie');
+        expect(second).toMatchObject({ slug: 'rename-twice-brasserie', publicSlug: 'rename-twice-diner' });
+      });
+
+      it.each([
+        ['publicSlug alone', { publicSlug: 'hijacked-public-slug' }],
+        ['publicSlug with a legitimate change', { name: 'Sneaky Rename Cafe', publicSlug: 'hijacked-public-slug' }],
+        ['public_slug (column name)', { public_slug: 'hijacked-public-slug' }],
+      ])('cannot be edited through the API: %s is rejected with 400', async (_label, payload) => {
+        const before = await me(owner.accessToken);
+
+        await api(app).patch('/restaurants/me').set(auth(owner.accessToken)).send(payload).expect(400);
+
+        const after = await me(owner.accessToken);
+        expect(after.publicSlug).toBe(before.publicSlug);
+        expect(after.name).toBe(before.name);
+      });
+
+      it('lets a restaurant rename back to its original name without a suffix', async () => {
+        const created = await registerOwner(app, { restaurantName: 'Boomerang Kitchen' });
+
+        await rename(created.accessToken, 'Boomerang Canteen');
+        const back = await rename(created.accessToken, 'Boomerang Kitchen');
+
+        expect(back).toMatchObject({ slug: 'boomerang-kitchen', publicSlug: 'boomerang-kitchen' });
+      });
+
+      it('keeps a renamed restaurant permanent slug reserved from other restaurants', async () => {
+        const original = await registerOwner(app, { restaurantName: 'Harbour Light Cafe' });
+        await rename(original.accessToken, 'Harbour Light Bistro');
+
+        // Registering the freed name must not take the old URL still printed on QR codes.
+        const newcomer = await registerOwner(app, { restaurantName: 'Harbour Light Cafe' });
+        const newcomerRestaurant = await me(newcomer.accessToken);
+        expect(newcomerRestaurant.slug).toBe('harbour-light-cafe-2');
+        expect(newcomerRestaurant.publicSlug).toBe('harbour-light-cafe-2');
+
+        // ...and neither may a rename.
+        const renamer = await registerOwner(app, { restaurantName: 'Unrelated Place' });
+        expect((await rename(renamer.accessToken, 'Harbour Light Cafe')).slug).toBe('harbour-light-cafe-3');
+
+        // The permanent URL still opens the original restaurant, under its new name.
+        const menu = await api(app).get('/public/restaurants/harbour-light-cafe/menu').expect(200);
+        expect(menu.body.restaurant).toMatchObject({ name: 'Harbour Light Bistro', slug: 'harbour-light-bistro' });
+      });
+    });
+
     it('is closed to kitchen staff', async () => {
       const staffToken = await promoteToRole(
         app,
