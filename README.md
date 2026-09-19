@@ -146,7 +146,7 @@ Edit `backend\.env`:
 | `DB_PASSWORD`          | MySQL password                                      | —                        |
 | `DB_DATABASE`          | Database name                                       | `plateo`                 |
 | `DB_SYNCHRONIZE`       | Must stay `false` — use migrations                  | `false`                  |
-| `DB_SSL` / `DB_SSL_CA` | TLS to managed MySQL; CA as PEM (`\n` escapes allowed). Required in production for a remote host | `true` / PEM |
+| `DB_SSL` / `DB_SSL_CA` | TLS to managed MySQL; CA as PEM (`\n` escapes allowed). Required in production unless the host is localhost or `*.railway.internal` | `true` / PEM |
 | `DB_SSL_REJECT_UNAUTHORIZED` | Verify the server certificate; `false` is refused in production | `true` |
 | `JWT_SECRET`           | Token signing key (≥ 32 chars in production)        | —                        |
 | `JWT_EXPIRES_IN`       | Access token lifetime                               | `1d`                     |

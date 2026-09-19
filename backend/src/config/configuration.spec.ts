@@ -1,4 +1,11 @@
-import { configuration, parsePem, parseTrustProxy, validateConfig, type AppConfig } from './configuration';
+import {
+  configuration,
+  isPrivateDatabaseHost,
+  parsePem,
+  parseTrustProxy,
+  validateConfig,
+  type AppConfig,
+} from './configuration';
 
 const CA = '-----BEGIN CERTIFICATE-----\nMIIBszCCAVmgAwIBAgIU\n-----END CERTIFICATE-----';
 
@@ -46,6 +53,23 @@ describe('configuration', () => {
       [' 10.0.0.0/8 ,  loopback ', '10.0.0.0/8, loopback'],
     ])('parses %p as %p', (input, expected) => {
       expect(parseTrustProxy(input)).toEqual(expected);
+    });
+  });
+
+  describe('isPrivateDatabaseHost', () => {
+    it.each([
+      ['localhost', true],
+      ['127.0.0.1', true],
+      ['::1', true],
+      ['mysql.railway.internal', true],
+      [' MYSQL.RAILWAY.INTERNAL ', true],
+      ['railway.internal', false],
+      ['mysqlrailway.internal', false],
+      ['mysql.railway.internal.evil.com', false],
+      ['mysql-production.up.railway.app', false],
+      ['db.example.com', false],
+    ])('%p -> %p', (host, expected) => {
+      expect(isPrivateDatabaseHost(host)).toBe(expected);
     });
   });
 
@@ -130,7 +154,24 @@ describe('configuration', () => {
       );
     });
 
-    it.each(['localhost', '127.0.0.1', '::1'])('does not require DB_SSL for a database on %s', (host) => {
+    it.each([
+      'db.example.com',
+      'mysql-production.up.railway.app',
+      'proxy.rlwy.net',
+      'railway.internal',
+      'mysql.railway.internal.evil.com',
+      'mysqlrailway.internal',
+    ])('still requires DB_SSL for the public or look-alike host %s', (host) => {
+      expectInvalid(
+        productionConfig((c) => {
+          c.database.host = host;
+          c.database.ssl = { enabled: false, ca: null, rejectUnauthorized: true };
+        }),
+        /DB_SSL must be enabled in production/,
+      );
+    });
+
+    it.each(['localhost', '127.0.0.1', '::1', 'mysql.railway.internal', 'MySQL.Railway.Internal'])('does not require DB_SSL for a database on %s', (host) => {
       expect(() =>
         validateConfig(
           productionConfig((c) => {

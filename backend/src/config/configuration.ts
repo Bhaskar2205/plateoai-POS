@@ -101,6 +101,22 @@ export const parsePem = (value: string | undefined): string | null => {
 
 const LOCAL_DATABASE_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
+/**
+ * Private-network hostnames whose traffic never leaves the hosting platform, so
+ * a database reached through them does not need TLS. Railway's private network
+ * (`<service>.railway.internal`) carries no TLS for its MySQL service.
+ */
+const PRIVATE_NETWORK_HOST_SUFFIXES = ['.railway.internal'];
+
+/** True when an unencrypted connection to `host` never crosses a public network. */
+export const isPrivateDatabaseHost = (host: string): boolean => {
+  const normalised = host.trim().toLowerCase();
+  return (
+    LOCAL_DATABASE_HOSTS.has(normalised) ||
+    PRIVATE_NETWORK_HOST_SUFFIXES.some((suffix) => normalised.endsWith(suffix) && normalised.length > suffix.length)
+  );
+};
+
 export const configuration = (): AppConfig => {
   const nodeEnv = (process.env.NODE_ENV ?? 'development') as AppConfig['nodeEnv'];
   const corsOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
@@ -195,8 +211,11 @@ export const validateConfig = (config: AppConfig): AppConfig => {
     errors.push('DB_SSL_REJECT_UNAUTHORIZED=false is not allowed in production.');
   }
 
-  if (production && !ssl.enabled && !LOCAL_DATABASE_HOSTS.has(config.database.host)) {
-    errors.push('DB_SSL must be enabled in production when the database is not on localhost.');
+  if (production && !ssl.enabled && !isPrivateDatabaseHost(config.database.host)) {
+    errors.push(
+      'DB_SSL must be enabled in production unless the database is on localhost or a private ' +
+        'platform network (*.railway.internal).',
+    );
   }
 
   if (errors.length > 0) {
