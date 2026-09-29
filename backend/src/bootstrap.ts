@@ -3,6 +3,7 @@ import { ClassSerializerInterceptor } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { Express } from 'express';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import type { TrustProxySetting } from './config/configuration';
@@ -34,6 +35,36 @@ export function configureApp(app: INestApplication): INestApplication {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   return app;
+}
+
+/**
+ * Serves stored dish photos at `/uploads/...`.
+ *
+ * Two headers matter here and both are easy to get wrong:
+ *
+ *  - `Cross-Origin-Resource-Policy: cross-origin`, because helmet defaults every
+ *    response to `same-origin` and the apps that show these photos (the admin on
+ *    its own domain, the public menu on another) are not this origin. Without it
+ *    the browser fetches the image and then refuses to paint it.
+ *  - a long, immutable cache, which is safe because every stored filename is
+ *    random: a photo at a given URL never changes, it is replaced by a new one.
+ *
+ * Files are served straight from the volume by Express. That is fine at a
+ * restaurant's traffic; the day it is not, this is where a CDN goes in front.
+ */
+export function serveUploads(app: NestExpressApplication, directory: string): void {
+  app.useStaticAssets(directory, {
+    prefix: '/uploads',
+    index: false,
+    dotfiles: 'ignore',
+    fallthrough: false,
+    maxAge: '365d',
+    immutable: true,
+    setHeaders: (res) => {
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    },
+  });
 }
 
 export function setupSwagger(app: INestApplication, path = 'api/docs'): void {

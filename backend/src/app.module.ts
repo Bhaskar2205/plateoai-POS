@@ -13,9 +13,12 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { DishesModule } from './modules/dishes/dishes.module';
 import { IngredientsModule } from './modules/ingredients/ingredients.module';
+import { OrdersModule } from './modules/orders/orders.module';
 import { PublicMenuModule } from './modules/public-menu/public-menu.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { RestaurantsModule } from './modules/restaurants/restaurants.module';
 import { TablesModule } from './modules/tables/tables.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 import { UsersModule } from './modules/users/users.module';
 
 /**
@@ -50,6 +53,9 @@ import { UsersModule } from './modules/users/users.module';
     DishesModule,
     PublicMenuModule,
     TablesModule,
+    OrdersModule,
+    ReportsModule,
+    UploadsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -93,6 +93,10 @@ export class RestaurantsService {
       address: input.address?.trim() || null,
       phone: input.phone?.trim() || null,
       status: RestaurantStatus.ACTIVE,
+      // A new restaurant bills exactly what its menu says until an owner
+      // configures tax, so this is 0 rather than any regional default.
+      taxRate: 0,
+      taxNumber: null,
     });
 
     return repository.save(restaurant);
@@ -192,6 +196,9 @@ export class RestaurantsService {
     if (dto.address !== undefined) restaurant.address = dto.address || null;
     if (dto.phone !== undefined) restaurant.phone = dto.phone || null;
     if (dto.logoUrl !== undefined) restaurant.logoUrl = dto.logoUrl || null;
+    if (dto.taxRate !== undefined) restaurant.taxRate = dto.taxRate;
+    // An empty string clears the number; the column is nullable, not blank.
+    if (dto.taxNumber !== undefined) restaurant.taxNumber = dto.taxNumber || null;
     if (dto.status !== undefined) restaurant.status = dto.status;
 
     return this.restaurantsRepository.save(restaurant);

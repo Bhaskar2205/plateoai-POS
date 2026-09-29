@@ -10,6 +10,7 @@ import {
   useDishes,
   useDishIngredients,
   useIngredients,
+  useMoveDishesToSection,
   useSaveDish,
   useToggleDishAvailability,
   type DishPayload,
@@ -18,7 +19,6 @@ import { dishSchema, type DishValues } from '@/lib/schemas';
 import type { Dish } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardHeader } from '@/components/ui/card';
-import { CheckboxField, SelectField, TextAreaField, TextField } from '@/components/ui/field';
 import { ConfirmDialog, Modal } from '@/components/ui/modal';
 import {
   EmptyState,
@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
 import type { CategoryFilter } from './category-manager';
-import { DishIngredientPicker } from './dish-ingredient-picker';
+import { DishForm } from './dish-form';
 
 const DIET_LABELS: Record<string, string> = {
   VEG: 'Vegetarian',
@@ -88,6 +88,8 @@ export function DishManager({
   const setCategoryFilter = onCategoryFilterChange ?? setOwnFilter;
 
   const [search, setSearch] = useState('');
+  /** Dishes ticked for a bulk move. Cleared whenever the move lands. */
+  const [picked, setPicked] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Dish | null>(null);
   const [deleting, setDeleting] = useState<Dish | null>(null);
@@ -106,6 +108,25 @@ export function DishManager({
   });
   const remove = useDeleteDish();
   const toggle = useToggleDishAvailability();
+  const moveToSection = useMoveDishesToSection({
+    onSuccess: (moved) => {
+      toast.success(
+        `Moved ${moved.length} dish${moved.length === 1 ? '' : 'es'} to a new section.`,
+      );
+      setPicked(new Set());
+    },
+    onError: (moveError) => toast.error(moveError),
+  });
+
+  const togglePicked = (id: number) =>
+    setPicked((current) => {
+      const next = new Set(current);
+
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+
+      return next;
+    });
 
   const form = useForm<DishValues>({
     resolver: zodResolver(dishSchema),
@@ -231,11 +252,11 @@ export function DishManager({
     <>
       <Card>
         <CardHeader
-          title={filterName ? `Dishes in ${filterName}` : 'Dishes'}
+          title={filterName ? `Dishes in ${filterName}` : 'Your dishes'}
           description={
             dishes
               ? `${visible.length} of ${dishes.length} shown · ${dishes.filter((dish) => dish.isAvailable).length} available`
-              : 'Your menu items, prices and availability.'
+              : 'Everything on your menu, with prices and availability.'
           }
           action={
             <Button size="sm" onClick={openCreate}>
@@ -252,7 +273,7 @@ export function DishManager({
         ) : dishes.length === 0 ? (
           <EmptyState
             title="No dishes yet"
-            description="Add your first dish with its price, prep time and ingredients."
+            description="A name and a price is all it takes to start. You can add a photo, what's in it and nutrition later."
             action={
               <Button size="sm" onClick={openCreate}>
                 <Plus className="size-4" aria-hidden />
@@ -263,6 +284,19 @@ export function DishManager({
         ) : (
           <>
             <div className="flex flex-col gap-2 border-b border-line px-4 py-3 sm:flex-row sm:px-5">
+              <label className="flex items-center gap-2 text-sm text-muted sm:order-last">
+                <input
+                  type="checkbox"
+                  checked={visible.length > 0 && visible.every((dish) => picked.has(dish.id))}
+                  onChange={(event) =>
+                    setPicked(event.target.checked ? new Set(visible.map((dish) => dish.id)) : new Set())
+                  }
+                  aria-label="Select every dish shown"
+                  className="size-4 cursor-pointer accent-brand-600"
+                />
+                Select all shown
+              </label>
+
               <div className="relative sm:max-w-xs sm:flex-1">
                 <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted" aria-hidden />
                 <input
@@ -275,30 +309,78 @@ export function DishManager({
                   className="w-full rounded-lg border border-line bg-surface py-2 pr-3 pl-8 text-sm placeholder:text-muted/70 shadow-card transition-[border-color,box-shadow] hover:border-muted/40 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none"
                 />
               </div>
-              <select
-                id="dish-category-filter"
-                value={filterValue}
-                onChange={(event) => {
-                  const { value } = event.target;
-                  setCategoryFilter(value === 'all' || value === 'uncategorised' ? value : Number(value));
-                }}
-                aria-label="Filter by category"
-                className="rounded-lg border border-line bg-surface px-3 py-2 text-sm shadow-card transition-[border-color,box-shadow] hover:border-muted/40 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none sm:w-52"
-              >
-                <option value="all">All categories</option>
-                {(categories.data ?? []).map((category) => (
-                  <option key={category.id} value={String(category.id)}>
-                    {category.name}
-                  </option>
-                ))}
-                <option value="uncategorised">Uncategorised</option>
-              </select>
+              {/* On the menu screen the section chips above already filter, so this
+                  dropdown only appears where the list stands on its own. */}
+              {controlledFilter === undefined && (
+                <select
+                  id="dish-category-filter"
+                  value={filterValue}
+                  onChange={(event) => {
+                    const { value } = event.target;
+                    setCategoryFilter(
+                      value === 'all' || value === 'uncategorised' ? value : Number(value),
+                    );
+                  }}
+                  aria-label="Filter by section"
+                  className="rounded-lg border border-line bg-surface px-3 py-2 text-sm shadow-card transition-[border-color,box-shadow] hover:border-muted/40 focus:border-brand-500 focus:ring-4 focus:ring-brand-500/10 focus:outline-none sm:w-52"
+                >
+                  <option value="all">All sections</option>
+                  {(categories.data ?? []).map((category) => (
+                    <option key={category.id} value={String(category.id)}>
+                      {category.name}
+                    </option>
+                  ))}
+                  <option value="uncategorised">Not in a section</option>
+                </select>
+              )}
             </div>
+
+            {picked.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 border-b border-line bg-brand-50 px-4 py-2.5 sm:px-5">
+                <p className="text-sm font-medium text-brand-700">
+                  {picked.size} dish{picked.size === 1 ? '' : 'es'} selected
+                </p>
+                <label htmlFor="bulk-move-section" className="sr-only">
+                  Move the selected dishes to a section
+                </label>
+                <select
+                  id="bulk-move-section"
+                  defaultValue=""
+                  disabled={moveToSection.isPending}
+                  onChange={(event) => {
+                    const { value } = event.target;
+                    if (value === '') return;
+
+                    moveToSection.mutate({
+                      ids: [...picked],
+                      categoryId: value === 'none' ? null : Number(value),
+                    });
+                    event.target.value = '';
+                  }}
+                  className="h-9 rounded-lg border border-line bg-surface px-3 text-sm text-ink focus:border-brand-500 focus:outline-none"
+                >
+                  <option value="">Move to section…</option>
+                  {(categories.data ?? []).map((category) => (
+                    <option key={category.id} value={String(category.id)}>
+                      {category.name}
+                    </option>
+                  ))}
+                  <option value="none">No section</option>
+                </select>
+                <Button variant="ghost" size="sm" onClick={() => setPicked(new Set())}>
+                  Clear
+                </Button>
+              </div>
+            )}
 
             {visible.length === 0 ? (
               <EmptyState
-                title={term ? 'No dishes match your search' : 'No dishes here yet'}
-                description={term ? `Nothing matches “${search.trim()}”.` : 'Add one, or choose another category.'}
+                title={term ? 'No dishes match your search' : 'No dishes in this section yet'}
+                description={
+                  term
+                    ? `Nothing matches “${search.trim()}”.`
+                    : 'Add one, or pick another section above.'
+                }
               />
             ) : (
               <ul className="divide-y divide-line">
@@ -306,6 +388,13 @@ export function DishManager({
                   return (
                     <li key={dish.id} className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:px-5">
                       <div className="flex min-w-0 flex-1 gap-3">
+                        <input
+                          type="checkbox"
+                          checked={picked.has(dish.id)}
+                          onChange={() => togglePicked(dish.id)}
+                          aria-label={`Select ${dish.name}`}
+                          className="mt-1 size-4 shrink-0 cursor-pointer accent-brand-600"
+                        />
                         {dish.imageUrl && <DishThumbnail key={dish.imageUrl} src={dish.imageUrl} />}
 
                         <div className="min-w-0 flex-1">
@@ -327,7 +416,7 @@ export function DishManager({
                             )}
                             {categoryFilter === 'all' && (
                               <span className="text-xs text-muted">
-                                {dish.category ? dish.category.name : 'Uncategorised'}
+                                {dish.category ? dish.category.name : 'No section'}
                               </span>
                             )}
                           </p>
@@ -376,7 +465,9 @@ export function DishManager({
 
       <Modal
         open={isFormOpen}
-        title={editing ? `Edit ${editing.name}` : 'Add dish'}
+        size="lg"
+        title={editing ? `Edit ${editing.name}` : 'Add a dish'}
+        description="Only a name and a price are required. Everything else can be added later."
         onClose={closeForm}
         footer={
           <>
@@ -392,155 +483,29 @@ export function DishManager({
         <form onSubmit={onSubmit} className="space-y-4" noValidate>
           <FormError error={save.error} />
 
-          <TextField
-            id="dish-name"
-            label="Name"
-            placeholder="Paneer Tikka Bowl"
-            required
-            error={form.formState.errors.name?.message}
-            {...form.register('name')}
-          />
-
-          <TextAreaField
-            id="dish-description"
-            label="Description"
-            placeholder="Grilled paneer with fresh vegetables and mint dressing"
-            error={form.formState.errors.description?.message}
-            {...form.register('description')}
-          />
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SelectField
-              id="dish-category"
-              label="Category"
-              hint={(categories.data ?? []).length === 0 ? 'No categories yet — add one from the category list.' : undefined}
-              error={form.formState.errors.categoryId?.message}
-              {...form.register('categoryId')}
-            >
-              <option value="">Uncategorised</option>
-              {(categories.data ?? []).map((category) => (
-                <option key={category.id} value={String(category.id)}>
-                  {category.name}
-                </option>
-              ))}
-            </SelectField>
-
-            <TextField
-              id="dish-price"
-              label="Price (₹)"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step="0.01"
-              required
-              error={form.formState.errors.price?.message}
-              {...form.register('price')}
-            />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <TextField
-              id="dish-prep-time"
-              label="Preparation time (minutes)"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={600}
-              step={1}
-              placeholder="15"
-              error={form.formState.errors.preparationTimeMinutes?.message}
-              {...form.register('preparationTimeMinutes')}
-            />
-
-            <SelectField
-              id="dish-diet-type"
-              label="Diet type"
-              error={form.formState.errors.dietType?.message}
-              {...form.register('dietType')}
-            >
-              <option value="">Not specified</option>
-              <option value="VEG">Vegetarian</option>
-              <option value="NON_VEG">Non-vegetarian</option>
-              <option value="EGG">Contains egg</option>
-              <option value="VEGAN">Vegan</option>
-            </SelectField>
-          </div>
-
-          <TextField
-            id="dish-image-url"
-            label="Image URL"
-            placeholder="https://cdn.example.com/dish.jpg"
-            error={form.formState.errors.imageUrl?.message}
-            {...form.register('imageUrl')}
-          />
-
-          {pantry.isError ? (
-            <ErrorState error={pantry.error} onRetry={() => void pantry.refetch()} />
-          ) : pantry.isPending || recipeLoading ? (
-            <LoadingState label="Loading ingredients…" />
-          ) : recipeFailed ? (
-            <div className="rounded-lg border border-warn-600/30 bg-warn-50 px-3 py-2 text-sm text-warn-600">
-              This dish’s ingredients couldn’t be loaded, so saving will keep its current recipe unchanged.{' '}
-              <button type="button" className="font-medium underline" onClick={() => void recipe.refetch()}>
-                Try again
-              </button>
-            </div>
-          ) : (
-            <DishIngredientPicker form={form} pantry={pantry.data} />
-          )}
-
-          <fieldset className="space-y-3 rounded-lg border border-line p-3">
-            <legend className="px-1 text-sm font-medium text-ink">Nutrition (optional)</legend>
-            <p className="text-xs text-muted">
-              Enter the values you want to show customers. Plateo stores them exactly as typed and does not
-              calculate or verify them — this is not nutritional or medical advice.
-            </p>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <TextField
-                id="dish-protein"
-                label="Protein (g)"
-                type="number"
-                min={0}
-                step="0.01"
-                error={form.formState.errors.proteinGrams?.message}
-                {...form.register('proteinGrams')}
-              />
-              <TextField
-                id="dish-calories"
-                label="Calories (kcal)"
-                type="number"
-                min={0}
-                step="0.01"
-                error={form.formState.errors.calories?.message}
-                {...form.register('calories')}
-              />
-              <TextField
-                id="dish-carbs"
-                label="Carbohydrates (g)"
-                type="number"
-                min={0}
-                step="0.01"
-                error={form.formState.errors.carbsGrams?.message}
-                {...form.register('carbsGrams')}
-              />
-              <TextField
-                id="dish-fat"
-                label="Fat (g)"
-                type="number"
-                min={0}
-                step="0.01"
-                error={form.formState.errors.fatGrams?.message}
-                {...form.register('fatGrams')}
-              />
-            </div>
-          </fieldset>
-
-          <CheckboxField
-            id="dish-available"
-            label="Available"
-            hint="Unavailable dishes stay on your menu but cannot be ordered."
-            {...form.register('isAvailable')}
+          <DishForm
+            form={form}
+            categories={categories.data ?? []}
+            pantry={pantry.data}
+            recipeSlot={
+              pantry.isError ? (
+                <ErrorState error={pantry.error} onRetry={() => void pantry.refetch()} />
+              ) : pantry.isPending || recipeLoading ? (
+                <LoadingState label="Loading ingredients…" />
+              ) : recipeFailed ? (
+                <div className="rounded-lg border border-warn-600/30 bg-warn-50 px-3 py-2 text-sm text-warn-600">
+                  This dish’s ingredients couldn’t be loaded, so saving will keep its current recipe
+                  unchanged.{' '}
+                  <button
+                    type="button"
+                    className="font-medium underline"
+                    onClick={() => void recipe.refetch()}
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : undefined
+            }
           />
         </form>
       </Modal>

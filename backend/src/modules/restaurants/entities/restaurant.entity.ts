@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { RestaurantStatus } from 'src/common/enums';
+import { numericTransformer } from 'src/common/transformers/numeric.transformer';
 import { RestaurantUser } from './restaurant-user.entity';
 
 /** A tenant. Every menu record in the system hangs off one of these rows. */
@@ -67,6 +68,24 @@ export class Restaurant {
   @ApiProperty({ enum: RestaurantStatus, example: RestaurantStatus.ACTIVE })
   @Column({ type: 'varchar', length: 16, default: RestaurantStatus.ACTIVE })
   status: RestaurantStatus;
+
+  /**
+   * Tax percentage added to every bill this restaurant settles. Defaults to 0, so
+   * a restaurant that has not configured tax bills exactly what it charges. The
+   * rate in force is copied onto each order when it is settled, so changing it
+   * later never rewrites a bill a diner has already paid.
+   */
+  @ApiProperty({ example: 5, description: 'Tax percentage applied to bills. 0 adds no tax.' })
+  @Column({ type: 'decimal', precision: 5, scale: 2, name: 'tax_rate', default: 0, transformer: numericTransformer })
+  taxRate: number;
+
+  @ApiProperty({
+    nullable: true,
+    example: '08AAAAA0000A1Z5',
+    description: 'Tax registration number printed on bills, e.g. a GSTIN.',
+  })
+  @Column({ type: 'varchar', length: 32, name: 'tax_number', nullable: true })
+  taxNumber: string | null;
 
   @ApiProperty()
   @CreateDateColumn({ name: 'created_at' })

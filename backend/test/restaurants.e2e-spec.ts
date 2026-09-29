@@ -118,6 +118,79 @@ describe('Restaurant profile (e2e)', () => {
         .expect(400);
     });
 
+    describe('billing settings', () => {
+      it('starts a new restaurant with no tax at all', async () => {
+        const fresh = await registerOwner(app, { restaurantName: 'No Tax Kitchen' });
+        const response = await api(app)
+          .get('/restaurants/me')
+          .set(auth(fresh.accessToken))
+          .expect(200);
+
+        // A restaurant bills exactly its menu prices until an owner says otherwise.
+        expect(response.body.taxRate).toBe(0);
+        expect(response.body.taxNumber).toBeNull();
+      });
+
+      it('sets a tax rate and the number printed on bills', async () => {
+        const response = await api(app)
+          .patch('/restaurants/me')
+          .set(auth(owner.accessToken))
+          .send({ taxRate: 5, taxNumber: '08AAAAA0000A1Z5' })
+          .expect(200);
+
+        expect(response.body.taxRate).toBe(5);
+        expect(response.body.taxNumber).toBe('08AAAAA0000A1Z5');
+        expect(typeof response.body.taxRate).toBe('number');
+      });
+
+      it('clears the tax number with an empty string', async () => {
+        await api(app)
+          .patch('/restaurants/me')
+          .set(auth(owner.accessToken))
+          .send({ taxNumber: '' })
+          .expect(200)
+          .expect((response) => expect(response.body.taxNumber).toBeNull());
+      });
+
+      it('refuses a rate that would multiply every bill', async () => {
+        for (const taxRate of [-1, 101, 500]) {
+          await api(app)
+            .patch('/restaurants/me')
+            .set(auth(owner.accessToken))
+            .send({ taxRate })
+            .expect(400);
+        }
+      });
+
+      it('keeps the previous rate when the request is rejected', async () => {
+        await api(app)
+          .patch('/restaurants/me')
+          .set(auth(owner.accessToken))
+          .send({ taxRate: 12.5 })
+          .expect(200);
+
+        await api(app)
+          .patch('/restaurants/me')
+          .set(auth(owner.accessToken))
+          .send({ taxRate: 'twelve' })
+          .expect(400);
+
+        const response = await api(app)
+          .get('/restaurants/me')
+          .set(auth(owner.accessToken))
+          .expect(200);
+
+        expect(response.body.taxRate).toBe(12.5);
+
+        // Leave the fixture as the other tests expect it.
+        await api(app)
+          .patch('/restaurants/me')
+          .set(auth(owner.accessToken))
+          .send({ taxRate: 0 })
+          .expect(200);
+      });
+    });
+
     describe('permanent public slug', () => {
       const me = async (token: string) =>
         (await api(app).get('/restaurants/me').set(auth(token)).expect(200)).body;

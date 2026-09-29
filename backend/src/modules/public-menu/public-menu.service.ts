@@ -1,24 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
-import { RestaurantStatus } from 'src/common/enums';
 import { Category } from 'src/modules/categories/entities/category.entity';
 import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
-import { isWellFormedTableToken } from 'src/modules/tables/table-token';
+import { resolveActiveRestaurant, resolveActiveTable } from './public-lookup';
 import {
   PublicDishDto,
   PublicIngredientDto,
   PublicMenuDto,
   PublicNutritionDto,
-  PublicTableDto,
 } from './dto/public-menu.dto';
-
-/** Slugs are generated server-side as lowercase a-z, 0-9 and hyphens. */
-const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const MAX_SLUG_LENGTH = 190;
 
 export const PUBLIC_MENU_DISCLAIMER =
   'Nutrition and allergen information is provided by the restaurant and has not been verified by ' +
@@ -53,8 +47,11 @@ export class PublicMenuService {
 
   /** `table` is the raw `?table=` value: absent, a string, or whatever a client sent. */
   async getMenu(slug: string, table?: unknown): Promise<PublicMenuDto> {
-    const restaurant = await this.findActiveRestaurant(slug);
-    const publicTable = table === undefined ? null : await this.findActiveTable(restaurant.id, table);
+    const restaurant = await resolveActiveRestaurant(this.restaurantsRepository, slug);
+    const publicTable =
+      table === undefined
+        ? null
+        : { name: (await resolveActiveTable(this.tablesRepository, restaurant.id, table)).name };
 
     const [categories, dishes] = await Promise.all([
       this.categoriesRepository.find({
@@ -105,67 +102,6 @@ export class PublicMenuService {
     };
   }
 
-  /**
-   * Resolves a menu URL segment by the restaurant's current `slug` or its
-   * permanent `publicSlug`, so links issued before a rename (table QR codes,
-   * shared menu links) keep working. The response always carries the current
-   * `slug`, which the web app treats as canonical.
-   *
-   * The two columns share one namespace on write, so at most one restaurant
-   * matches; if that ever failed, the permanent identifier wins, because it is
-   * the one printed on QR codes.
-   *
-   * Unknown, malformed and suspended restaurants all produce the same 404, so
-   * the endpoint cannot be used to discover which slugs exist or are suspended.
-   */
-  private async findActiveRestaurant(slug: string): Promise<Restaurant> {
-    const normalised = slug.trim().toLowerCase();
-
-    if (normalised.length > MAX_SLUG_LENGTH || !SLUG_PATTERN.test(normalised)) {
-      throw PublicMenuService.notFound();
-    }
-
-    const matches = await this.restaurantsRepository.find({
-      where: [
-        { publicSlug: normalised, status: RestaurantStatus.ACTIVE },
-        { slug: normalised, status: RestaurantStatus.ACTIVE },
-      ],
-      select: { id: true, name: true, slug: true, publicSlug: true, description: true, address: true, logoUrl: true },
-      take: 2,
-    });
-
-    const restaurant = matches.find((row) => row.publicSlug === normalised) ?? matches[0];
-
-    if (!restaurant) {
-      throw PublicMenuService.notFound();
-    }
-
-    return restaurant;
-  }
-
-  /**
-   * Unknown tokens, another restaurant's table and deactivated tables all give
-   * the same 404, so the endpoint reveals nothing about which tokens exist.
-   */
-  private async findActiveTable(restaurantId: number, token: unknown): Promise<PublicTableDto> {
-    if (!isWellFormedTableToken(token)) {
-      throw PublicMenuService.tableNotFound();
-    }
-
-    const table = await this.tablesRepository.findOne({
-      where: { qrToken: token, restaurantId, isActive: true },
-      select: { id: true, name: true, qrToken: true },
-    });
-
-    // Exact comparison as well as the binary column collation: tokens are
-    // case-sensitive, and SQLite (tests) or a mis-collated column must not relax that.
-    if (!table || table.qrToken !== token) {
-      throw PublicMenuService.tableNotFound();
-    }
-
-    return { name: table.name };
-  }
-
   private async loadRecipes(
     restaurantId: number,
     dishIds: number[],
@@ -190,8 +126,6 @@ export class PublicMenuService {
       const list = recipes.get(line.dishId) ?? [];
       list.push({
         name: line.ingredient.name,
-        quantity: line.quantity,
-        unit: line.unit,
         allergenInfo: line.ingredient.allergenInfo,
       });
       recipes.set(line.dishId, list);
@@ -233,11 +167,5 @@ export class PublicMenuService {
     return { calories, proteinGrams, carbsGrams, fatGrams, source: 'RESTAURANT_DECLARED' };
   }
 
-  private static notFound(): NotFoundException {
-    return new NotFoundException('This menu is not available.');
-  }
 
-  private static tableNotFound(): NotFoundException {
-    return new NotFoundException('This table is not available.');
-  }
 }

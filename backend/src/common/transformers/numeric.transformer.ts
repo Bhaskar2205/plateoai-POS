@@ -9,8 +9,15 @@ import { ValueTransformer } from 'typeorm';
  * never by summing these JS numbers.
  */
 export class NumericTransformer implements ValueTransformer {
-  to(value: number | null | undefined): number | null {
-    return value === null || value === undefined ? null : value;
+  /**
+   * `undefined` is passed through rather than collapsed to `null`, so a column
+   * the caller never set falls back to its database DEFAULT. Returning `null`
+   * here would write an explicit NULL instead, which fails outright on a NOT
+   * NULL column with a default (`orders.subtotal`, `restaurants.tax_rate`).
+   * An explicit `null` still clears a nullable column.
+   */
+  to(value: number | null | undefined): number | null | undefined {
+    return value;
   }
 
   from(value: string | number | null): number | null {

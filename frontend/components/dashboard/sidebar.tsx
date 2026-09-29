@@ -3,13 +3,14 @@
 import {
   Armchair,
   Carrot,
+  ChefHat,
   LayoutDashboard,
-  LayoutList,
   LogOut,
   QrCode,
   Receipt,
   Settings,
   Store,
+  TrendingUp,
   UtensilsCrossed,
   type LucideIcon,
 } from 'lucide-react';
@@ -18,7 +19,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/cn';
-import { TABLE_ADMIN_ROLES } from '@/lib/permissions';
+import { BILLING_ROLES, KITCHEN_ROLES, ORDER_WRITE_ROLES, TABLE_ADMIN_ROLES } from '@/lib/permissions';
 import type { UserRole } from '@/lib/types';
 import { Avatar, PlateoWordmark } from './brand';
 
@@ -38,11 +39,15 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
     items: [
       { href: '/restaurant/dashboard', label: 'Overview', icon: LayoutDashboard },
       { href: '/restaurant/menu', label: 'Menu', icon: UtensilsCrossed },
-      { href: '/restaurant/menu/categories', label: 'Categories', icon: LayoutList },
       { href: '/restaurant/menu/ingredients', label: 'Ingredients', icon: Carrot },
-      { href: '/restaurant/tables', label: 'Tables', icon: Armchair, roles: TABLE_ADMIN_ROLES },
+      // Everyone who takes orders needs the floor; the Setup tab inside is still
+      // owner-only, so a waiter sees the tables without the QR controls.
+      { href: '/restaurant/tables', label: 'Tables', icon: Armchair, roles: ORDER_WRITE_ROLES },
       { href: '/restaurant/qr-codes', label: 'QR Codes', icon: QrCode, roles: TABLE_ADMIN_ROLES },
-      { href: '/restaurant/orders', label: 'Orders', icon: Receipt, badge: 'Soon' },
+      { href: '/restaurant/orders', label: 'Bills', icon: Receipt, roles: ORDER_WRITE_ROLES },
+      { href: '/restaurant/kitchen', label: 'Kitchen', icon: ChefHat, roles: KITCHEN_ROLES },
+      // Money: owners and managers only, never waiters or the kitchen.
+      { href: '/restaurant/reports', label: 'Reports', icon: TrendingUp, roles: BILLING_ROLES },
     ],
   },
   {
@@ -71,6 +76,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   SUPER_ADMIN: 'Plateo admin',
   RESTAURANT_OWNER: 'Owner',
   RESTAURANT_MANAGER: 'Manager',
+  WAITER: 'Waiter',
   KITCHEN_STAFF: 'Kitchen staff',
 };
 

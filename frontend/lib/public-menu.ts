@@ -14,10 +14,12 @@ import { cache } from 'react';
 
 export type PublicDietType = 'VEG' | 'NON_VEG' | 'EGG' | 'VEGAN';
 
+/**
+ * An ingredient as a diner sees it. No quantity: the API deliberately does not
+ * publish the kitchen's proportions.
+ */
 export interface PublicIngredient {
   name: string;
-  quantity: number;
-  unit: string;
   allergenInfo: string | null;
 }
 

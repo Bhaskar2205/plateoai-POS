@@ -25,7 +25,16 @@
   --color-danger-600: #b91c1c;
 
   --color-warn-50: #fffbeb;
+  --color-warn-500: #d9930f;
   --color-warn-600: #b45309;
+
+  /* The floor view needs a colour that is neither "good" nor "warning" for a
+     table whose items have not reached the kitchen yet. A muted steel blue,
+     chosen to sit with the warm neutrals rather than fight them. */
+  --color-info-50: #eef4fb;
+  --color-info-100: #dae7f7;
+  --color-info-500: #3a6ea5;
+  --color-info-700: #2b5480;
 
   /* A single warm, food-inspired accent (turmeric), used sparingly for
      highlights such as icon tiles - never for primary actions. */

@@ -6,13 +6,19 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { CategoryManager, type CategoryFilter } from '@/components/menu/category-manager';
+import type { CategoryFilter } from '@/components/menu/category-manager';
 import { DishManager } from '@/components/menu/dish-manager';
+import { SectionStrip } from '@/components/menu/section-strip';
 import { PageHeader } from '@/components/page-header';
 
 /**
- * The menu management screen: categories on the left act as a filter for the
- * dish list on the right. Stacks to one column on phones.
+ * The menu screen: your dishes, with the menu's sections as a filter above them.
+ *
+ * One column, not two. Sections used to sit in a panel of their own beside the
+ * dishes, which gave a heading-with-a-name the same weight on screen as the
+ * dishes themselves and left people unsure which side to start on. They are now
+ * a row of chips - a filter, which is what they are used as - with everything
+ * else behind "Edit sections".
  */
 export default function MenuPage() {
   // useSearchParams needs a Suspense boundary for static prerendering.
@@ -36,47 +42,41 @@ function MenuScreen() {
     <>
       <PageHeader
         title="Menu"
-        description="Organise categories, add dishes with their ingredients, and switch availability as the kitchen runs out."
+        description="Add dishes, set prices, and switch a dish off when the kitchen runs out. Everything here is what diners see when they scan a table QR code."
         action={
           <div className="flex flex-wrap gap-2">
-          {slug && (
+            {slug && (
+              <Link
+                href={`/menu/${slug}` as Route}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium text-ink transition-colors hover:bg-ground"
+              >
+                <ExternalLink className="size-4" aria-hidden />
+                View public menu
+              </Link>
+            )}
             <Link
-              href={`/menu/${slug}` as Route}
-              target="_blank"
-              rel="noopener"
+              href="/restaurant/menu/ingredients"
               className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium text-ink transition-colors hover:bg-ground"
             >
-              <ExternalLink className="size-4" aria-hidden />
-              View public menu
+              <Carrot className="size-4" aria-hidden />
+              Ingredient list
             </Link>
-          )}
-          <Link
-            href="/restaurant/menu/ingredients"
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-line bg-surface px-4 text-sm font-medium text-ink transition-colors hover:bg-ground"
-          >
-            <Carrot className="size-4" aria-hidden />
-            Manage ingredients
-          </Link>
           </div>
         }
       />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]">
-        <div className="lg:sticky lg:top-6">
-          <CategoryManager
-            selected={filter}
-            onSelect={setFilter}
-            autoOpenCreate={intent === 'category'}
-            onAutoOpened={clearIntent}
-          />
-        </div>
-        <DishManager
-          categoryFilter={filter}
-          onCategoryFilterChange={setFilter}
-          autoOpenCreate={intent === 'dish'}
-          onAutoOpened={clearIntent}
-        />
+      <div className="mb-4">
+        <SectionStrip selected={filter} onSelect={setFilter} />
       </div>
+
+      <DishManager
+        categoryFilter={filter}
+        onCategoryFilterChange={setFilter}
+        autoOpenCreate={intent === 'dish'}
+        onAutoOpened={clearIntent}
+      />
     </>
   );
 }

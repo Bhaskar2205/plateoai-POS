@@ -1,16 +1,18 @@
 import 'reflect-metadata';
+import { resolve } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { configureApp, setupSwagger } from './bootstrap';
+import { configureApp, serveUploads, setupSwagger } from './bootstrap';
 import type { AppConfig } from './config/configuration';
 
 const SWAGGER_PATH = 'api/docs';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('port')!;
@@ -37,6 +39,9 @@ async function bootstrap(): Promise<void> {
 
   configureApp(app);
 
+  const uploads = configService.get<AppConfig['uploads']>('uploads')!;
+  serveUploads(app, resolve(uploads.directory));
+
   if (swaggerEnabled) {
     setupSwagger(app, SWAGGER_PATH);
   }
@@ -48,6 +53,11 @@ async function bootstrap(): Promise<void> {
   logger.log(`CORS origins: ${corsOrigins.join(', ')}`);
   logger.log(`Trust proxy: ${String(configService.get<AppConfig['trustProxy']>('trustProxy'))}`);
   logger.log(`Database TLS: ${configService.get<AppConfig['database']>('database')!.ssl.enabled ? 'on' : 'off'}`);
+  logger.log(`Dish photos: ${resolve(uploads.directory)} served at ${uploads.publicApiUrl}/uploads`);
+
+  if (nodeEnv === 'production' && !resolve(uploads.directory).startsWith('/')) {
+    logger.warn('UPLOADS_DIR is not absolute: dish photos will be lost on the next deploy.');
+  }
 
   if (nodeEnv === 'production' && !configService.get<string>('internalProxySecret')) {
     logger.warn(

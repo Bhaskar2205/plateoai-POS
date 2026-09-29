@@ -70,7 +70,10 @@ export class CreateDishDto {
   @ApiPropertyOptional({ example: 'https://cdn.example.com/paneer-tikka-bowl.jpg' })
   @IsOptional()
   @Transform(trim)
-  @IsUrl({ require_protocol: true }, { message: 'imageUrl must be a valid http(s) URL' })
+  @IsUrl(
+    { require_protocol: true, require_tld: false, protocols: ['http', 'https'] },
+    { message: 'imageUrl must be a valid http(s) URL' },
+  )
   @MaxLength(512)
   imageUrl?: string;
 

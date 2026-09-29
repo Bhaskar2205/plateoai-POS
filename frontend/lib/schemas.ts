@@ -84,6 +84,14 @@ export const restaurantProfileSchema = z.object({
     .optional()
     .or(z.literal('')),
   logoUrl: optionalUrl,
+  /**
+   * Tax on bills. Blank means the same as 0 - a restaurant that adds no tax - so
+   * an empty field is accepted rather than forcing owners to type a zero.
+   */
+  taxRate: z
+    .union([z.literal(''), z.coerce.number().min(0, 'Cannot be negative').max(100, 'Cannot exceed 100%')])
+    .optional(),
+  taxNumber: optionalText(32),
 });
 export type RestaurantProfileValues = z.infer<typeof restaurantProfileSchema>;
 

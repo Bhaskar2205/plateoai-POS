@@ -63,6 +63,24 @@ export interface AppConfig {
     loginTtlSeconds: number;
     loginLimit: number;
   };
+  uploads: {
+    /**
+     * Directory dish photos are written to and served from.
+     *
+     * On Railway this must point at a mounted volume: a container's own
+     * filesystem is wiped on every deploy, so photos written beside the code
+     * would disappear the next time the API ships.
+     */
+    directory: string;
+    /**
+     * Public origin of this API, used to build the photo URLs stored on dishes
+     * (e.g. https://api.plateoai.in). Changing it later does not rewrite URLs
+     * already saved, so it is set once per environment.
+     */
+    publicApiUrl: string;
+    /** Largest upload accepted, in bytes, before re-encoding. */
+    maxBytes: number;
+  };
 }
 
 const toBool = (value: string | undefined, fallback = false): boolean => {
@@ -134,6 +152,14 @@ export const configuration = (): AppConfig => {
     swaggerEnabled: toBool(process.env.SWAGGER_ENABLED, nodeEnv !== 'production'),
     trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
     internalProxySecret: (process.env.INTERNAL_PROXY_SECRET ?? '').trim(),
+    uploads: {
+      directory: (process.env.UPLOADS_DIR || './uploads').trim(),
+      publicApiUrl: (process.env.PUBLIC_API_URL || `http://localhost:${toInt(process.env.PORT, 4000)}`).replace(
+        /\/+$/,
+        '',
+      ),
+      maxBytes: toInt(process.env.UPLOAD_MAX_BYTES, 8 * 1024 * 1024),
+    },
     database: {
       host: process.env.DB_HOST ?? 'localhost',
       port: toInt(process.env.DB_PORT, 3306),
@@ -171,6 +197,22 @@ export const validateConfig = (config: AppConfig): AppConfig => {
     errors.push('JWT_SECRET is required (see .env.example).');
   } else if (production && config.jwt.secret.length < 32) {
     errors.push('JWT_SECRET must be at least 32 characters in production.');
+  }
+
+  if (!/^https?:\/\/[^/\s]+$/i.test(config.uploads.publicApiUrl)) {
+    errors.push('PUBLIC_API_URL must be an origin such as https://api.plateoai.in (no path).');
+  } else if (production && !config.uploads.publicApiUrl.startsWith('https://')) {
+    errors.push('PUBLIC_API_URL must be https in production: dish photo URLs are stored with it.');
+  }
+
+  // A relative directory in production means photos are being written beside the
+  // code, inside the container - which is wiped on every deploy. Insist on an
+  // absolute path, which is what a mounted volume gives you.
+  if (production && !config.uploads.directory.startsWith('/')) {
+    errors.push(
+      'UPLOADS_DIR must be an absolute path on a mounted volume in production (e.g. /data/uploads), ' +
+        'or dish photos are lost on the next deploy.',
+    );
   }
 
   if (!/^https?:\/\/[^/\s]+$/i.test(config.publicWebUrl)) {

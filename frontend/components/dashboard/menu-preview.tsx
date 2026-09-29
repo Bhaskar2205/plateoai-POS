@@ -105,11 +105,11 @@ export function MenuPreview({
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-ink">{dish.name}</p>
                     <p className="truncate text-xs text-muted md:hidden">
-                      {dish.category?.name ?? 'Uncategorised'} · <span className="tabular-nums">{price(dish.price)}</span>
+                      {dish.category?.name ?? 'No section'} · <span className="tabular-nums">{price(dish.price)}</span>
                     </p>
                   </div>
                 </div>
-                <p className="hidden truncate text-sm text-muted md:block">{dish.category?.name ?? 'Uncategorised'}</p>
+                <p className="hidden truncate text-sm text-muted md:block">{dish.category?.name ?? 'No section'}</p>
                 <p className="hidden text-right text-sm font-medium text-ink tabular-nums md:block">{price(dish.price)}</p>
                 <div className="text-right">
                   <Badge tone={dish.isAvailable ? 'success' : 'neutral'} dot>

@@ -48,3 +48,6 @@ pnpm-debug.log*
 Thumbs.db
 *.swp
 *.tmp
+
+# Uploaded dish photos (restaurant data, served from a volume in production)
+backend/uploads/

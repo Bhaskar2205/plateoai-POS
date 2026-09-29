@@ -9,7 +9,9 @@ import { TypeOrmModule, type TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { Module } from '@nestjs/common';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
-import { configureApp } from 'src/bootstrap';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { resolve } from 'node:path';
+import { configureApp, serveUploads } from 'src/bootstrap';
 import { ClientIpThrottlerGuard } from 'src/common/guards/client-ip-throttler.guard';
 import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/common/guards/roles.guard';
@@ -27,6 +29,9 @@ import { DishesModule } from 'src/modules/dishes/dishes.module';
 import { IngredientsModule } from 'src/modules/ingredients/ingredients.module';
 import { PublicMenuModule } from 'src/modules/public-menu/public-menu.module';
 import { RestaurantsModule } from 'src/modules/restaurants/restaurants.module';
+import { OrdersModule } from 'src/modules/orders/orders.module';
+import { ReportsModule } from 'src/modules/reports/reports.module';
+import { UploadsModule } from 'src/modules/uploads/uploads.module';
 import { TablesModule } from 'src/modules/tables/tables.module';
 import { UsersModule } from 'src/modules/users/users.module';
 
@@ -124,6 +129,9 @@ function testDatabaseOptions(): TypeOrmModuleOptions {
     DishesModule,
     PublicMenuModule,
     TablesModule,
+    OrdersModule,
+    ReportsModule,
+    UploadsModule,
   ],
   controllers: [AuthController, HealthController],
   providers: [
@@ -162,8 +170,11 @@ export async function createTestApp(
     imports: [options.throttle ? ThrottledTestAppModule : TestAppModule],
   }).compile();
 
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
   configureApp(app);
+  // Same static route as production, so the suite covers the headers a browser
+  // needs before it will paint a photo from another origin.
+  serveUploads(app, resolve(configuration().uploads.directory));
   await app.init();
 
   const dataSource = app.get(DataSource);

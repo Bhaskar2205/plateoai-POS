@@ -99,7 +99,12 @@ export default async function PublicMenuPage({ params, searchParams }: PageProps
         // Restaurant-entered text: escape "<" so a dish name can never close the script tag.
         dangerouslySetInnerHTML={{ __html: JSON.stringify(toStructuredData(result.menu)).replace(/</g, '\\u003c') }}
       />
-      <PublicMenuView menu={result.menu} />
+      <PublicMenuView
+        menu={result.menu}
+        // Ordering only exists for a table: a menu opened as a plain link has no
+        // table to order for, and the API would refuse it anyway.
+        ordering={table === undefined ? undefined : { slug: restaurantSlug, tableToken: table }}
+      />
     </>
   );
 }

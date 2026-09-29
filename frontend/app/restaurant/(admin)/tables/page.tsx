@@ -7,24 +7,36 @@ import {
   Copy,
   Download,
   ExternalLink,
+  LayoutGrid,
   Lock,
   Pencil,
   Plus,
   Printer,
   QrCode,
+  Receipt,
   RefreshCw,
   Search,
   Trash2,
 } from 'lucide-react';
+import type { Route } from 'next';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/cn';
-import { canManageTables } from '@/lib/permissions';
-import { useDeleteTable, useRegenerateTableQr, useSaveTable, useTables, useToggleTable } from '@/lib/queries';
+import { canManageTables, canTakeOrders } from '@/lib/permissions';
+import { formatMoney } from '@/lib/format';
+import {
+  useDeleteTable,
+  useFloor,
+  useRegenerateTableQr,
+  useSaveTable,
+  useTables,
+  useToggleTable,
+} from '@/lib/queries';
 import { tableSchema, type TableValues } from '@/lib/schemas';
-import type { RestaurantTable } from '@/lib/types';
+import type { RestaurantTable, TableOrderSummary } from '@/lib/types';
+import { FloorView } from '@/components/tables/floor-view';
 import { QrPreview } from '@/components/tables/qr-preview';
 import { TableStatusSwitch } from '@/components/tables/table-status-switch';
 import { useQrActions } from '@/components/tables/use-qr-actions';
@@ -41,17 +53,33 @@ type StatusFilter = 'all' | 'active' | 'inactive';
 
 const naturalOrder = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 
+/**
+ * Two jobs live under Tables, so the page has two tabs rather than one crowded
+ * screen:
+ *
+ *  - **Floor** is the working view during service - the table grid a till operator
+ *    reads at a glance, with a bill one tap away.
+ *  - **Setup** is the occasional view - adding tables, renaming them, and the QR
+ *    codes that get printed and put on them.
+ *
+ * Floor is the default because service is what happens every day; setup happens
+ * once and then rarely.
+ */
+type TablesTab = 'floor' | 'setup';
+
 export default function TablesPage() {
   const { session } = useAuth();
   const canManage = canManageTables(session?.user.role);
+  const canOrder = canTakeOrders(session?.user.role);
+  const [tab, setTab] = useState<TablesTab>(canOrder ? 'floor' : 'setup');
 
   if (!session) return null;
 
   return (
     <>
       <PageHeader
-        title="Tables"
-        description="Every table gets its own QR code. Diners scan it to open your menu for that table — no app or login needed."
+        title="Table view"
+        description="Your floor at a glance. Every table has its own QR code, so diners can order from it themselves."
         action={
           canManage ? (
             <Link
@@ -64,8 +92,53 @@ export default function TablesPage() {
           ) : undefined
         }
       />
-      {canManage ? (
-        <TablesManager restaurantName={session.restaurant.name} />
+
+      <div
+        role="tablist"
+        aria-label="Table view"
+        className="mb-4 inline-flex rounded-xl border border-line bg-surface p-1 shadow-card"
+      >
+        {(
+          [
+            { id: 'floor', label: 'Floor', icon: LayoutGrid },
+            { id: 'setup', label: 'Setup & QR codes', icon: QrCode },
+          ] as const
+        ).map((item) => {
+          const Icon = item.icon;
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              onClick={() => setTab(item.id)}
+              className={cn(
+                'inline-flex h-9 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors',
+                tab === item.id ? 'bg-brand-600 text-white' : 'text-muted hover:text-ink',
+              )}
+            >
+              <Icon className="size-4" aria-hidden />
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === 'floor' ? (
+        canOrder ? (
+          <FloorView />
+        ) : (
+          <Card>
+            <EmptyState
+              icon={Lock}
+              title="Your role does not take orders"
+              description="The floor view is for owners, managers and waiters. Kitchen staff work from the Kitchen panel instead."
+            />
+          </Card>
+        )
+      ) : canManage ? (
+        <TablesManager restaurantName={session.restaurant.name} canOrder={canOrder} />
       ) : (
         <Card>
           <EmptyState
@@ -79,8 +152,11 @@ export default function TablesPage() {
   );
 }
 
-function TablesManager({ restaurantName }: { restaurantName: string }) {
+function TablesManager({ restaurantName, canOrder }: { restaurantName: string; canOrder: boolean }) {
   const { data: tables, isPending, isError, error, refetch } = useTables();
+  // What is happening at each table right now, so this page shows the same bill
+  // the Service page does rather than a second, disagreeing view of the floor.
+  const floor = useFloor({ enabled: canOrder });
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('all');
   const [creating, setCreating] = useState(false);
@@ -258,6 +334,7 @@ function TablesManager({ restaurantName }: { restaurantName: string }) {
                   <li key={table.id} className="overflow-hidden rounded-xl border border-line bg-surface">
                     <TableCard
                       table={table}
+                      bill={floor.data?.find((row) => row.tableId === table.id)}
                       copied={qr.copiedId === table.id}
                       downloading={qr.isBusy('download', table.id)}
                       printing={qr.isBusy('print', table.id)}
@@ -365,6 +442,7 @@ function TablesManager({ restaurantName }: { restaurantName: string }) {
 
 function TableCard({
   table,
+  bill,
   restaurantName,
   copied,
   downloading,
@@ -379,6 +457,8 @@ function TableCard({
   onDelete,
 }: {
   table: RestaurantTable;
+  /** The table's open bill, when the signed-in role may see bills at all. */
+  bill?: TableOrderSummary;
   restaurantName: string;
   copied: boolean;
   downloading: boolean;
@@ -438,6 +518,27 @@ function TableCard({
           </div>
           {!table.isActive && (
             <p className="text-xs text-muted">Diners scanning this code are told the table isn’t available.</p>
+          )}
+
+          {bill?.orderId != null && (
+            <Link
+              href={`/restaurant/orders/${bill.orderId}` as Route}
+              className="flex items-center justify-between gap-2 rounded-lg border border-brand-200 bg-brand-50/60 px-2.5 py-2 transition-colors hover:bg-brand-50"
+            >
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold text-brand-700">
+                  Bill #{bill.orderNumber} · {formatMoney(bill.total)}
+                </span>
+                <span className="block text-xs text-brand-700/80">
+                  {bill.pendingApprovalCount > 0
+                    ? `${bill.pendingApprovalCount} diner request(s) to approve`
+                    : bill.unsentItemCount > 0
+                      ? `${bill.unsentItemCount} not sent to the kitchen`
+                      : `${bill.itemCount} item(s) · settle, discount or print`}
+                </span>
+              </span>
+              <Receipt className="size-4 shrink-0 text-brand-700" aria-hidden />
+            </Link>
           )}
         </div>
       </div>

@@ -131,6 +131,7 @@ const TYPE_MAP: Record<string, string> = {
   decimal: 'DECIMAL',
   boolean: 'TINYINT',
   datetime: 'DATETIME',
+  date: 'DATE',
   smallint: 'SMALLINT',
 };
 
@@ -151,12 +152,15 @@ describe('InitSchema migration matches the entities', () => {
     await (dataSource as unknown as { buildMetadatas: () => Promise<void> }).buildMetadatas();
   });
 
-  it('creates the seven Week 1 tables plus restaurant tables', () => {
+  it('creates the seven Week 1 tables plus tables, orders and kitchen tickets', () => {
     expect([...migrationTables.keys()].sort()).toEqual([
       'categories',
       'dish_ingredients',
       'dishes',
       'ingredients',
+      'kot_tickets',
+      'order_items',
+      'orders',
       'restaurant_tables',
       'restaurant_users',
       'restaurants',
@@ -195,6 +199,78 @@ describe('InitSchema migration matches the entities', () => {
     expect(up.match(/UPDATE `/g)).toHaveLength(1);
     expect(down).toMatch(/DROP INDEX `UQ_restaurants_public_slug` ON `restaurants`/);
     expect(down).toMatch(/DROP COLUMN `public_slug`/);
+  });
+
+  it('keeps order history immutable, per-day numbered and tenant-scoped', () => {
+    const sql = readFileSync(join(MIGRATIONS_DIR, '1758758400000-CreateOrders.ts'), 'utf8').replaceAll(
+      '\\`',
+      '`',
+    );
+    const up = sql.split('public async down')[0];
+    const down = sql.split('public async down')[1];
+    // Foreign keys are declared across several lines; compare on one line.
+    const flatUp = up.replace(/\s+/g, ' ');
+
+    // Money is exact, never a float type.
+    for (const column of [
+      '`subtotal` DECIMAL(10,2)',
+      '`discount_amount` DECIMAL(10,2)',
+      '`tax_amount` DECIMAL(10,2)',
+      '`total` DECIMAL(10,2)',
+      '`unit_price` DECIMAL(10,2)',
+      '`line_total` DECIMAL(10,2)',
+    ]) {
+      expect(up).toContain(column);
+    }
+
+    // Only the DDL itself: this migration's comment names FLOAT to say why it is unused.
+    const ddl = [...up.matchAll(/CREATE TABLE[\s\S]*?ENGINE=InnoDB/g)].map((match) => match[0]).join('\n');
+    expect(ddl).not.toMatch(/\b(FLOAT|DOUBLE|REAL)\b/);
+
+    // A bill outlives the table, the dish and the staff accounts behind it.
+    expect(flatUp).toContain(
+      'FK_orders_table` FOREIGN KEY (`table_id`) REFERENCES `restaurant_tables`(`id`) ON DELETE SET NULL',
+    );
+    expect(flatUp).toContain(
+      'FK_order_items_dish` FOREIGN KEY (`dish_id`) REFERENCES `dishes`(`id`) ON DELETE SET NULL',
+    );
+    for (const column of ['settled_by_user_id', 'opened_by_user_id', 'created_by_user_id']) {
+      expect(flatUp).toContain(
+        'FOREIGN KEY (`' + column + '`) REFERENCES `users`(`id`) ON DELETE SET NULL',
+      );
+    }
+
+    // Deleting a tenant still removes its orders, like every other tenant table.
+    for (const fk of ['FK_orders_restaurant', 'FK_order_items_restaurant', 'FK_kot_tickets_restaurant']) {
+      expect(flatUp).toContain(
+        fk + '` FOREIGN KEY (`restaurant_id`) REFERENCES `restaurants`(`id`) ON DELETE CASCADE',
+      );
+    }
+
+    // Numbering restarts each business day, enforced by the database rather than
+    // by the application, so concurrent orders cannot share a number.
+    expect(up).toContain(
+      'UNIQUE INDEX `UQ_orders_restaurant_date_number` (`restaurant_id`, `business_date`, `order_number`)',
+    );
+    expect(up).toContain(
+      'UNIQUE INDEX `UQ_kot_tickets_restaurant_date_number` (`restaurant_id`, `business_date`, `ticket_number`)',
+    );
+
+    // Tax is additive and defaults to charging nothing extra.
+    expect(up).toContain(
+      'ALTER TABLE `restaurants` ADD `tax_rate` DECIMAL(5,2) NOT NULL DEFAULT 0 AFTER `status`',
+    );
+    expect(up).toContain('ALTER TABLE `restaurants` ADD `tax_number` VARCHAR(32) NULL');
+
+    // No existing row is rewritten or removed.
+    expect(up).not.toMatch(/UPDATE `/);
+    expect(up).not.toMatch(/DELETE FROM/);
+
+    // down() removes exactly what up() added, children before parents.
+    expect(down.indexOf('DROP TABLE `order_items`')).toBeLessThan(down.indexOf('DROP TABLE `orders`'));
+    expect(down.indexOf('DROP TABLE `kot_tickets`')).toBeLessThan(down.indexOf('DROP TABLE `orders`'));
+    expect(down).toContain('DROP COLUMN `tax_number`');
+    expect(down).toContain('DROP COLUMN `tax_rate`');
   });
 
   it('defines a table for every entity', () => {

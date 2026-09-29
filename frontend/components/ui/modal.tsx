@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
+import { cn } from '@/lib/cn';
 import { Button } from './button';
 
 /**
@@ -15,6 +16,7 @@ export function Modal({
   onClose,
   children,
   footer,
+  size = 'md',
 }: {
   open: boolean;
   title: string;
@@ -22,6 +24,8 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  /** 'lg' for dialogs that hold a form and a preview side by side. */
+  size?: 'md' | 'lg';
 }) {
   useEffect(() => {
     if (!open) return;
@@ -52,7 +56,12 @@ export function Modal({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="flex max-h-[92vh] w-full max-w-lg flex-col rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl">
+      <div
+        className={cn(
+          'flex max-h-[92vh] w-full flex-col rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl',
+          size === 'lg' ? 'max-w-4xl' : 'max-w-lg',
+        )}
+      >
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
           <div className="space-y-1">
             <h2 className="text-base font-semibold text-ink">{title}</h2>

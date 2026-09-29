@@ -10,6 +10,9 @@ import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 import { Ingredient } from 'src/modules/ingredients/entities/ingredient.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
+import { Order } from 'src/modules/orders/entities/order.entity';
+import { OrderItem } from 'src/modules/orders/entities/order-item.entity';
+import { KotTicket } from 'src/modules/orders/entities/kot-ticket.entity';
 import { mysqlSslConnectionOptions } from './mysql-ssl';
 import { mysqlUtcConnectionOptions } from './mysql-utc';
 
@@ -28,6 +31,9 @@ export const entities = [
   Ingredient,
   DishIngredient,
   RestaurantTable,
+  Order,
+  KotTicket,
+  OrderItem,
 ];
 
 export const buildDataSourceOptions = (): DataSourceOptions => {

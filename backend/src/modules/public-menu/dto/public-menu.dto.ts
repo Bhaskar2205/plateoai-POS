@@ -32,15 +32,17 @@ export class PublicTableDto {
   name: string;
 }
 
+/**
+ * An ingredient as a diner sees it: the name, and whether it carries an allergen.
+ *
+ * Deliberately no quantity. A diner asking "what is in this?" wants to know there
+ * is paneer in it, not that there are 180 grams of it - and the proportions of a
+ * dish are the kitchen's own work, which has no business being readable by
+ * anyone who opens the menu.
+ */
 export class PublicIngredientDto {
   @ApiProperty({ example: 'Paneer' })
   name: string;
-
-  @ApiProperty({ example: 120, description: 'Amount in `unit`.' })
-  quantity: number;
-
-  @ApiProperty({ example: 'g' })
-  unit: string;
 
   @ApiProperty({
     nullable: true,

@@ -31,6 +31,11 @@ function productionConfig(overrides: (config: AppConfig) => void = () => undefin
     },
     jwt: { secret: 'j'.repeat(64), expiresIn: '1d' },
     throttle: { loginTtlSeconds: 60, loginLimit: 5 },
+    uploads: {
+      directory: '/data/uploads',
+      publicApiUrl: 'https://api.plateoai.in',
+      maxBytes: 8 * 1024 * 1024,
+    },
   };
   overrides(config);
   return config;

@@ -24,7 +24,7 @@ const ALLOWED_KEYS = new Set([
   // PublicNutritionDto
   'calories', 'proteinGrams', 'carbsGrams', 'fatGrams', 'source',
   // PublicIngredientDto
-  'quantity', 'unit', 'allergenInfo',
+  'allergenInfo',
 ]);
 
 function collectKeys(value: unknown, keys = new Set<string>()): Set<string> {
@@ -202,11 +202,13 @@ describe('Public menu (e2e)', () => {
         fatGrams: null,
         source: 'RESTAURANT_DECLARED',
       },
+      // Names and allergens only: what a diner needs, without publishing the
+      // kitchen's proportions to anyone who opens the menu.
       ingredients: [
-        { name: 'Paneer', quantity: 120, unit: 'g', allergenInfo: 'Contains milk' },
-        { name: 'Spinach', quantity: 80.5, unit: 'g', allergenInfo: null },
-        { name: 'Cashew', quantity: 15, unit: 'g', allergenInfo: 'Contains tree nuts' },
-        { name: 'Cream', quantity: 20, unit: 'ml', allergenInfo: 'Contains milk' },
+        { name: 'Paneer', allergenInfo: 'Contains milk' },
+        { name: 'Spinach', allergenInfo: null },
+        { name: 'Cashew', allergenInfo: 'Contains tree nuts' },
+        { name: 'Cream', allergenInfo: 'Contains milk' },
       ],
       // Deduplicated ("Contains milk" appears on two ingredients) and sorted.
       allergens: ['Contains milk', 'Contains tree nuts'],

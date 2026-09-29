@@ -26,6 +26,8 @@ const toFormValues = (restaurant: Restaurant): RestaurantProfileValues => ({
   address: restaurant.address ?? '',
   phone: restaurant.phone ?? '',
   logoUrl: restaurant.logoUrl ?? '',
+  taxRate: restaurant.taxRate,
+  taxNumber: restaurant.taxNumber ?? '',
 });
 
 export default function ProfilePage() {
@@ -64,6 +66,9 @@ export default function ProfilePage() {
         address: values.address || null,
         phone: values.phone || null,
         logoUrl: values.logoUrl || null,
+        // A blank tax field means "no tax", not "leave it alone".
+        taxRate: values.taxRate === '' || values.taxRate === undefined ? 0 : values.taxRate,
+        taxNumber: values.taxNumber ?? '',
       });
 
       reset(toFormValues(updated));
@@ -135,6 +140,35 @@ export default function ProfilePage() {
                         {...register('phone')}
                       />
                     </div>
+                  </FormSection>
+
+                  <FormSection title="Billing">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <TextField
+                        id="profile-tax-rate"
+                        label="Tax rate (%)"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        placeholder="0"
+                        hint="Added to bills when they are settled. Leave at 0 if you do not add tax."
+                        error={errors.taxRate?.message}
+                        {...register('taxRate')}
+                      />
+                      <TextField
+                        id="profile-tax-number"
+                        label="GSTIN / tax number"
+                        placeholder="08AAAAA0000A1Z5"
+                        hint="Printed on bills. Optional."
+                        error={errors.taxNumber?.message}
+                        {...register('taxNumber')}
+                      />
+                    </div>
+                    <p className="text-xs text-muted">
+                      The rate in force is copied onto each bill when it is settled, so changing it
+                      never alters a bill a diner has already paid.
+                    </p>
                   </FormSection>
 
                   <FormSection title="Branding">

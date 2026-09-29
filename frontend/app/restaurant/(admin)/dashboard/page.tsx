@@ -141,20 +141,20 @@ export default function DashboardPage() {
           <QuickAction
             primary
             href="/restaurant/menu?new=dish"
-            title="Add New Dish"
-            description="Price, prep time, ingredients and nutrition."
+            title="Add a dish"
+            description="Name and price is enough to start."
             icon={Plus}
           />
           <QuickAction
-            href="/restaurant/menu?new=category"
-            title="Add Category"
-            description="Group dishes into sections like Starters."
+            href="/restaurant/menu"
+            title="Edit the menu"
+            description="Prices, photos, sections and what's in each dish."
             icon={LayoutList}
           />
           <QuickAction
             href="/restaurant/menu/ingredients?new=1"
-            title="Add Ingredient"
-            description="Build a reusable pantry with allergen notes."
+            title="Add an ingredient"
+            description="Reusable across dishes, with allergen notes."
             icon={Carrot}
           />
           <QuickAction
