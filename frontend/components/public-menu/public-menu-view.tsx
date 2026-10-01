@@ -1,6 +1,17 @@
 'use client';
 
-import { Armchair, ChevronRight, Leaf, MapPin, Search, Sparkles, TriangleAlert, X } from 'lucide-react';
+import {
+  Armchair,
+  ChevronRight,
+  Leaf,
+  MapPin,
+  QrCode,
+  Search,
+  Sparkles,
+  TriangleAlert,
+  UtensilsCrossed,
+  X,
+} from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import type { PublicDish, PublicMenu } from '@/lib/public-menu';
@@ -25,15 +36,15 @@ interface Section {
  * The diner-facing menu: restaurant header, sticky search and section navigation,
  * and one list of dish cards per section.
  *
- * The card carries what a diner scans for - photo, name, price, veg mark, price,
- * prep time and any allergen warning - and nothing else. Everything deeper
- * (full description, every ingredient with quantities, declared nutrition) opens
- * in a detail sheet, so the list stays readable on a phone at a table while the
- * question "what is actually in this?" still has a clear answer one tap away.
+ * The card carries what a diner scans for - photo, name, price, veg mark, prep
+ * time and any allergen warning - and nothing else. Everything deeper (full
+ * description, every ingredient, declared nutrition) opens in a detail sheet, so
+ * the list stays readable on a phone at a table while the question "what is
+ * actually in this?" still has a clear answer one tap away.
  *
  * `ordering` is present only when the menu was opened from a table QR code.
- * Without it this stays a read-only menu with no Add buttons, because a menu
- * shared as a plain link has no table to order for.
+ * Without it this is a read-only menu - and it says so, rather than simply
+ * missing its Add buttons and leaving the diner to wonder.
  */
 export function PublicMenuView({
   menu,
@@ -96,6 +107,7 @@ export function PublicMenuView({
   const totalDishes = sections.reduce((total, section) => total + section.dishes.length, 0);
   const matchCount = visibleSections.reduce((total, section) => total + section.dishes.length, 0);
   const filtering = term.length > 0 || vegOnly;
+  const canOrder = Boolean(ordering && menu.table);
 
   // Highlight the section chip for whichever section is under the sticky bar.
   useEffect(() => {
@@ -116,11 +128,17 @@ export function PublicMenuView({
 
   const page = (
     <div className="min-h-dvh bg-ground">
-      <RestaurantHeader menu={menu} totalDishes={totalDishes} />
+      <RestaurantHeader menu={menu} totalDishes={totalDishes} canOrder={canOrder} />
 
       {totalDishes === 0 ? (
         <main className="mx-auto max-w-3xl px-4 py-16 text-center sm:px-6">
-          <p className="text-lg font-semibold text-ink">The menu is being prepared</p>
+          <span
+            aria-hidden
+            className="mx-auto grid size-14 place-items-center rounded-2xl bg-brand-50 text-brand-600"
+          >
+            <UtensilsCrossed className="size-7" />
+          </span>
+          <p className="mt-4 text-lg font-semibold text-ink">The menu is being prepared</p>
           <p className="mt-2 text-sm text-muted">
             {menu.restaurant.name} hasn’t published any dishes yet. Please check back soon or ask a member of staff.
           </p>
@@ -201,6 +219,10 @@ export function PublicMenuView({
           </div>
 
           <main className="mx-auto max-w-3xl px-4 pt-4 pb-10 sm:px-6">
+            {/* Without a table there are no Add buttons. Say why, rather than
+                leaving a diner to decide the menu is broken. */}
+            {!canOrder && <HowToOrder restaurantName={menu.restaurant.name} />}
+
             {filtering && (
               <div className="mb-4 flex flex-wrap items-center gap-2" aria-live="polite">
                 <p className="text-sm text-muted">
@@ -241,7 +263,7 @@ export function PublicMenuView({
                 </button>
               </div>
             ) : (
-              <div className="space-y-8">
+              <div className="space-y-9">
                 {visibleSections.map((section) => (
                   <section
                     key={section.key}
@@ -253,13 +275,16 @@ export function PublicMenuView({
                     aria-labelledby={`${section.key}-title`}
                     className="scroll-mt-36"
                   >
-                    <div className="mb-3 flex items-baseline justify-between gap-3">
+                    <div className="mb-3.5 flex items-center gap-3">
                       <h2
                         id={`${section.key}-title`}
                         className="text-lg font-bold tracking-tight text-ink text-balance sm:text-xl"
                       >
                         {section.name}
                       </h2>
+                      {/* A hairline that runs to the count, so a long menu reads
+                          as courses rather than one unbroken list. */}
+                      <span aria-hidden className="h-px min-w-4 flex-1 bg-line" />
                       <span className="shrink-0 text-xs font-medium text-muted tabular-nums">
                         {section.dishes.length} {section.dishes.length === 1 ? 'dish' : 'dishes'}
                       </span>
@@ -315,6 +340,34 @@ export function PublicMenuView({
   );
 }
 
+/**
+ * Shown when the menu was opened as a plain link rather than from a table QR code.
+ *
+ * Ordering needs the table's token, which only the printed QR carries, so the
+ * honest thing is to explain that instead of showing an Add button that could not
+ * work. The API would refuse the request anyway.
+ */
+function HowToOrder({ restaurantName }: { restaurantName: string }) {
+  return (
+    <div className="mb-5 flex items-start gap-3 rounded-2xl border border-saffron-100 bg-saffron-50 px-4 py-3.5">
+      <span
+        aria-hidden
+        className="grid size-10 shrink-0 place-items-center rounded-xl bg-saffron-500/15 text-saffron-600"
+      >
+        <QrCode className="size-5" />
+      </span>
+      <div className="min-w-0 text-sm">
+        <p className="font-semibold text-ink">Browsing the menu</p>
+        <p className="mt-0.5 text-muted">
+          To order, scan the QR code on your table at {restaurantName} — it opens this menu with your
+          table attached, so what you choose reaches the right table. You can still look through
+          everything here.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /** The restaurant logo, or its initials when there is no logo or it fails to load. */
 export function RestaurantMark({ restaurant }: { restaurant: PublicMenu['restaurant'] }) {
   const [logoFailed, setLogoFailed] = useState(false);
@@ -344,35 +397,54 @@ export function RestaurantMark({ restaurant }: { restaurant: PublicMenu['restaur
   );
 }
 
-function RestaurantHeader({ menu, totalDishes }: { menu: PublicMenu; totalDishes: number }) {
+function RestaurantHeader({
+  menu,
+  totalDishes,
+  canOrder,
+}: {
+  menu: PublicMenu;
+  totalDishes: number;
+  canOrder: boolean;
+}) {
   const { restaurant, table } = menu;
 
   return (
-    <header className="border-b border-line bg-surface">
-      {/* A thin warm band, so the page opens as something served rather than a form. */}
+    <header className="relative overflow-hidden border-b border-line bg-surface">
+      {/* A warm wash behind the name, so the page opens as something served
+          rather than a form. Decorative only. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-brand-50 via-saffron-50/60 to-transparent"
+      />
       <div aria-hidden className="h-1.5 bg-gradient-to-r from-brand-600 via-brand-500 to-saffron-500" />
 
-      <div className="mx-auto flex max-w-3xl items-start gap-4 px-4 py-6 sm:px-6 sm:py-8">
-        <RestaurantMark restaurant={restaurant} />
+      <div className="relative mx-auto flex max-w-3xl items-start gap-4 px-4 py-6 sm:px-6 sm:py-8">
+        <div className="relative">
+          <RestaurantMark restaurant={restaurant} />
+        </div>
 
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold tracking-[0.14em] text-brand-600 uppercase">Menu</p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight text-ink text-balance sm:text-3xl">
+          <p className="inline-flex items-center gap-1.5 rounded-full bg-brand-600/10 px-2.5 py-1 text-[11px] font-semibold tracking-[0.14em] text-brand-700 uppercase">
+            <UtensilsCrossed className="size-3" aria-hidden />
+            Menu
+          </p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-ink text-balance sm:text-3xl">
             {restaurant.name}
           </h1>
           {restaurant.description && (
             <p className="mt-1.5 max-w-prose text-sm text-muted">{restaurant.description}</p>
           )}
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-muted">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             {restaurant.address && (
-              <span className="inline-flex items-center gap-1.5">
-                <MapPin className="size-4 shrink-0" aria-hidden />
-                {restaurant.address}
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-muted">
+                <MapPin className="size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">{restaurant.address}</span>
               </span>
             )}
             {totalDishes > 0 && (
-              <span className="tabular-nums">
-                {totalDishes} {totalDishes === 1 ? 'dish' : 'dishes'} available
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs text-muted tabular-nums">
+                <Sparkles className="size-3.5 shrink-0 text-saffron-500" aria-hidden />
+                {totalDishes} {totalDishes === 1 ? 'dish' : 'dishes'}
               </span>
             )}
           </div>
@@ -382,13 +454,19 @@ function RestaurantHeader({ menu, totalDishes }: { menu: PublicMenu; totalDishes
       {/* The table is the single most important fact on this page when it is set:
           it tells the diner their order will reach their own table. */}
       {table && (
-        <div className="border-t border-saffron-100 bg-saffron-50">
-          <div className="mx-auto flex max-w-3xl items-center gap-2.5 px-4 py-2.5 sm:px-6">
-            <Armchair className="size-4 shrink-0 text-saffron-600" aria-hidden />
-            <p className="min-w-0 text-sm text-saffron-600">
-              You are seated at{' '}
-              <span className="font-semibold text-saffron-600">{table.name}</span> — order here and
-              it goes straight to your table.
+        <div className="relative border-t border-brand-100 bg-brand-50">
+          <div className="mx-auto flex max-w-3xl items-center gap-2.5 px-4 py-3 sm:px-6">
+            <span
+              aria-hidden
+              className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand-600 text-white"
+            >
+              <Armchair className="size-4" />
+            </span>
+            <p className="min-w-0 text-sm text-brand-700">
+              You are seated at <span className="font-bold">{table.name}</span>
+              {canOrder
+                ? ' — tap Add on any dish, then Place order. It goes straight to your table.'
+                : ' — ask a member of staff to take your order.'}
             </p>
           </div>
         </div>
@@ -422,7 +500,7 @@ function DishCard({
   return (
     <article
       aria-labelledby={`dish-${dish.id}`}
-      className="flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card transition-shadow focus-within:shadow-raised hover:shadow-raised"
+      className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card transition-all focus-within:border-brand-500/40 focus-within:shadow-raised hover:-translate-y-0.5 hover:border-brand-500/40 hover:shadow-raised"
     >
       <button
         type="button"
@@ -430,12 +508,20 @@ function DishCard({
         aria-label={`See what is in ${dish.name}`}
         className="flex flex-1 gap-3.5 p-3.5 text-left focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
       >
-        <DishImage
-          dish={dish}
-          failed={imageFailed}
-          onFailed={() => setImageFailed(true)}
-          className="size-28 shrink-0 rounded-xl border border-line sm:size-32"
-        />
+        <div className="relative shrink-0">
+          <DishImage
+            dish={dish}
+            failed={imageFailed}
+            onFailed={() => setImageFailed(true)}
+            className="size-28 rounded-xl border border-line sm:size-32"
+          />
+          {/* The price sits on the photo, so the two things a diner compares are
+              never separated by a line of text. Bottom left, because the image's
+              own fallback mark occupies the opposite corner. */}
+          <span className="absolute bottom-1 left-1 rounded-lg bg-ink/85 px-2 py-0.5 text-xs font-bold text-white tabular-nums shadow-sm backdrop-blur-sm">
+            {money(dish.price)}
+          </span>
+        </div>
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex items-start gap-2">
@@ -448,10 +534,8 @@ function DishCard({
             </h3>
           </div>
 
-          <p className="mt-1 text-base font-bold text-ink tabular-nums">{money(dish.price)}</p>
-
           {dish.description && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted">
+            <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">
               {dish.description}
             </p>
           )}
