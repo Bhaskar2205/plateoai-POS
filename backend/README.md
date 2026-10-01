@@ -16,11 +16,16 @@ npm run start:dev             # http://localhost:4000, docs at /api/docs
 | ------------------------- | -------------------------------------------------------- |
 | `npm run start:dev`       | Watch-mode dev server                                    |
 | `npm run build`           | Compile to `dist/`                                       |
-| `npm run start:prod`      | Run the compiled build                                   |
+| `node dist/main.js`       | Run the compiled build                                   |
 | `npm run typecheck`       | `tsc --noEmit`                                           |
 | `npm run migration:run`   | Apply pending migrations                                 |
 | `npm run migration:revert`| Undo the most recent migration                           |
 | `npm run migration:show`  | List applied / pending migrations                        |
+
+`start:prod` is the same command with `exec` in front, which is how the platform
+starts the API: `exec` replaces npm's wrapper shell with node so node receives
+SIGTERM on a deploy instead of a shell that dies without telling it. `exec` is
+POSIX-only, so run the compiled build by hand with `node dist/main.js` on Windows.
 | `npm run migration:generate -- src/database/migrations/Name` | Diff entities against the live DB. Must report "No changes in database schema were found" when nothing has changed |
 | `npm run seed`            | Insert a demo restaurant and sample menu                 |
 | `npm test`                | Unit tests                                               |

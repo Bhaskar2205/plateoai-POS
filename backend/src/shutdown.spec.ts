@@ -1,4 +1,5 @@
 import { installShutdownHandlers, SHUTDOWN_SIGNALS } from './shutdown';
+import { scripts } from '../package.json';
 
 /**
  * These cover the behaviour behind a "crashed" alert that was not a crash: a
@@ -125,5 +126,22 @@ describe('installShutdownHandlers', () => {
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Shutdown complete.'));
 
     process.exitCode = previousExitCode;
+  });
+});
+
+/**
+ * The handler above is useless if the signal never reaches this process.
+ *
+ * The platform starts the API with `npm run start:prod`, and npm runs a script as
+ * `sh -c <script>`. Without `exec`, that shell stays in place and node is its
+ * child: the shell is killed by SIGTERM, node never hears about it, and npm
+ * reports `npm error signal SIGTERM`. The deploy logs showed exactly that - npm
+ * naming `sh -c node dist/main.js` as the command killed by the signal, while the
+ * handler logged nothing at all. `exec` replaces the shell with node, so node is
+ * the process the signal is delivered to.
+ */
+describe('the production start script', () => {
+  it('execs node, so the signal reaches it rather than a wrapper shell', () => {
+    expect(scripts['start:prod']).toBe('exec node dist/main.js');
   });
 });
