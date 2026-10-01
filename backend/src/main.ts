@@ -7,6 +7,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { configureApp, serveUploads, setupSwagger } from './bootstrap';
+import { installShutdownHandlers } from './shutdown';
 import type { AppConfig } from './config/configuration';
 
 const SWAGGER_PATH = 'api/docs';
@@ -46,6 +47,11 @@ async function bootstrap(): Promise<void> {
     setupSwagger(app, SWAGGER_PATH);
   }
 
+  // Finish what is in flight before going away. A deploy sends SIGTERM to the
+  // old container while it may still be settling a bill, and `app.close()` lets
+  // those requests finish and closes the database pool.
+  app.enableShutdownHooks();
+
   await app.listen(port);
 
   const logger = new Logger('Bootstrap');
@@ -69,6 +75,8 @@ async function bootstrap(): Promise<void> {
   if (swaggerEnabled) {
     logger.log(`API documentation: http://localhost:${port}/${SWAGGER_PATH}`);
   }
+
+  installShutdownHandlers(app, logger);
 }
 
 void bootstrap();
