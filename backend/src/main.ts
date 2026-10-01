@@ -47,11 +47,11 @@ async function bootstrap(): Promise<void> {
     setupSwagger(app, SWAGGER_PATH);
   }
 
-  // Finish what is in flight before going away. A deploy sends SIGTERM to the
-  // old container while it may still be settling a bill, and `app.close()` lets
-  // those requests finish and closes the database pool.
-  app.enableShutdownHooks();
-
+  // Deliberately NOT app.enableShutdownHooks(): Nest's own signal handler ends by
+  // re-raising the signal at itself (`process.kill(process.pid, signal)`), so the
+  // process dies *by* SIGTERM and exits non-zero - the very thing that makes a
+  // normal rollover look like a crash. installShutdownHandlers below runs the same
+  // lifecycle hooks through `app.close()` and then exits 0.
   await app.listen(port);
 
   const logger = new Logger('Bootstrap');

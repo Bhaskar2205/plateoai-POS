@@ -12,6 +12,13 @@ import type { INestApplication, LoggerService } from '@nestjs/common';
  * container while it may be halfway through settling a bill; `close()` lets
  * in-flight requests finish and shuts the database pool down rather than dropping
  * the connection mid-transaction.
+ *
+ * Note that `app.enableShutdownHooks()` does NOT achieve this and must not be used
+ * alongside it. Nest's own handler finishes with `process.kill(process.pid, signal)`,
+ * re-raising the signal at itself after removing every listener, so the process
+ * still dies by the signal and still exits non-zero. `app.close()` below runs the
+ * same lifecycle hooks (`onModuleDestroy`, `beforeApplicationShutdown`,
+ * `onApplicationShutdown`) without that ending.
  */
 
 /** How long to wait for in-flight work before leaving anyway. */
@@ -20,15 +27,27 @@ export const FORCED_EXIT_MS = 10_000;
 export const SHUTDOWN_SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGINT'];
 
 export interface ShutdownOptions {
-  /** Injected so the behaviour can be tested without ending the test runner. */
+  /**
+   * Ends the process normally. The default sets an exit code and lets the event
+   * loop drain, rather than calling `process.exit`, so the last log lines are
+   * flushed to the platform instead of being cut off mid-write.
+   */
   exit?: (code: number) => void;
+  /** Last resort when the loop will not drain. Injected so tests can watch it. */
+  hardExit?: (code: number) => void;
   forcedExitMs?: number;
 }
 
 export function installShutdownHandlers(
   app: Pick<INestApplication, 'close'>,
   logger: LoggerService,
-  { exit = (code) => process.exit(code), forcedExitMs = FORCED_EXIT_MS }: ShutdownOptions = {},
+  {
+    exit = (code) => {
+      process.exitCode = code;
+    },
+    hardExit = (code) => process.exit(code),
+    forcedExitMs = FORCED_EXIT_MS,
+  }: ShutdownOptions = {},
 ): void {
   let shuttingDown = false;
 
@@ -42,7 +61,7 @@ export function installShutdownHandlers(
 
     const forced = setTimeout(() => {
       logger.warn?.('Shutdown took too long; exiting anyway.');
-      exit(0);
+      hardExit(0);
     }, forcedExitMs);
 
     // Never hold the process open just for this timer.
@@ -63,6 +82,10 @@ export function installShutdownHandlers(
   };
 
   for (const signal of SHUTDOWN_SIGNALS) {
+    // Take sole ownership of the signal. Anything else already listening - Nest's
+    // own hooks, or a library's - may end by re-raising it, which kills the
+    // process by the signal and undoes all of the above.
+    process.removeAllListeners(signal);
     process.on(signal, () => void shutdown(signal));
   }
 }
