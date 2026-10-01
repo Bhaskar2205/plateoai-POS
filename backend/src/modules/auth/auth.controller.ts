@@ -16,6 +16,7 @@ import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-request.interface';
 import { AuthService } from './auth.service';
 import { AuthResponseDto, LogoutResponseDto, MeResponseDto } from './dto/auth-response.dto';
+import { KitchenSessionDto, KitchenSessionResponseDto } from './dto/kitchen-session.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SwitchRestaurantDto } from './dto/switch-restaurant.dto';
@@ -40,6 +41,26 @@ export class AuthController {
   @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.', type: ErrorResponseDto })
   register(@Body() dto: RegisterDto): Promise<AuthResponseDto> {
     return this.authService.register(dto);
+  }
+
+  @Public()
+  @Post('kitchen')
+  @HttpCode(HttpStatus.OK)
+  @CredentialThrottle()
+  @ApiOperation({
+    summary: 'Sign a kitchen screen in with a kitchen code',
+    description:
+      'The kitchen board has no accounts: a screen signs in with the restaurant kitchen code, which ' +
+      'the owner reads from Settings. The token it returns reaches the kitchen board and nothing ' +
+      'else - no bills, no menu, no takings - so a code on a sticker cannot expose the business. ' +
+      'Rate limited per IP like any other credential, and regenerating the code in the admin app ' +
+      'retires every screen using the old one.',
+  })
+  @ApiOkResponse({ type: KitchenSessionResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Unknown kitchen code.', type: ErrorResponseDto })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.', type: ErrorResponseDto })
+  kitchenSession(@Body() dto: KitchenSessionDto): Promise<KitchenSessionResponseDto> {
+    return this.authService.kitchenSession(dto);
   }
 
   @Public()

@@ -5,16 +5,21 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { RestaurantStatus, UserRole } from 'src/common/enums';
 import type { AppConfig } from 'src/config/configuration';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-request.interface';
+import { kitchenCodeFingerprint } from 'src/modules/restaurants/kitchen-code';
 import { RestaurantsService } from 'src/modules/restaurants/restaurants.service';
 import { UsersService } from 'src/modules/users/users.service';
 
 /** Claims Plateo signs into every access token. */
 export interface JwtPayload {
-  /** User id. */
-  sub: number;
-  email: string;
+  /** User id. Absent on a kitchen screen token, which has no account behind it. */
+  sub?: number;
+  email?: string;
   /** Active restaurant id - the tenant this token is scoped to. */
   rid: number;
+  /** `kitchen` for a screen signed in with a kitchen code. */
+  scope?: 'kitchen';
+  /** Fingerprint of the kitchen code the screen signed in with. */
+  kcv?: string;
 }
 
 @Injectable()
@@ -45,6 +50,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * restaurant to put it back.
    */
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
+    if (payload?.scope === 'kitchen') {
+      return this.validateKitchenDevice(payload);
+    }
+
     if (!payload?.sub || !payload?.rid) {
       throw new UnauthorizedException('Malformed access token.');
     }
@@ -76,6 +85,47 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       name: user.name,
       role: user.role,
       restaurantId: payload.rid,
+    };
+  }
+
+  /**
+   * A kitchen screen: a restaurant, no account.
+   *
+   * It is given the KITCHEN_STAFF role, which is what confines it - `RolesGuard`
+   * only lets that role reach the kitchen board, so a code leaked on a sticker
+   * cannot read a bill, change the menu or see the day's takings. The restaurant
+   * is re-checked on every request, so suspending a tenant or regenerating its
+   * code stops the screens in the same breath.
+   */
+  private async validateKitchenDevice(payload: JwtPayload): Promise<AuthenticatedUser> {
+    if (!payload.rid) {
+      throw new UnauthorizedException('Malformed access token.');
+    }
+
+    const restaurant = await this.restaurantsService.findById(payload.rid).catch(() => null);
+
+    if (!restaurant) {
+      throw new UnauthorizedException('This kitchen screen is no longer linked to a restaurant.');
+    }
+
+    if (restaurant.status === RestaurantStatus.INACTIVE) {
+      throw new ForbiddenException('This restaurant is inactive. Contact Plateo support.');
+    }
+
+    // The code was regenerated: this screen is holding a retired credential.
+    if (payload.kcv !== kitchenCodeFingerprint(restaurant.kitchenCode)) {
+      throw new UnauthorizedException(
+        'This kitchen screen was signed out. Enter the new kitchen code.',
+      );
+    }
+
+    return {
+      id: 0,
+      email: '',
+      name: 'Kitchen screen',
+      role: UserRole.KITCHEN_STAFF,
+      restaurantId: restaurant.id,
+      kitchenDevice: true,
     };
   }
 }

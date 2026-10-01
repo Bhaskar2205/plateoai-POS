@@ -102,15 +102,32 @@ export function toOrderDto(order: Order, tickets: KotTicket[] = []): OrderDto {
   };
 }
 
-const toKitchenItemDto = (item: OrderItem): KitchenTicketItemDto => ({
-  id: item.id,
-  name: item.name,
-  quantity: item.quantity,
-  note: item.note,
-  status: item.status,
-});
+/** What goes into a dish, keyed by dish id, for the kitchen board. */
+export interface RecipeLookup {
+  get(dishId: number): { ingredients: string[]; allergens: string[] } | undefined;
+}
 
-export function toKitchenTicketDto(ticket: KotTicket, now: Date = new Date()): KitchenTicketDto {
+const toKitchenItemDto = (item: OrderItem, recipes?: RecipeLookup): KitchenTicketItemDto => {
+  // A line whose dish has since been deleted keeps its name and its note; only
+  // the recipe is gone, and an empty list says that plainly.
+  const recipe = item.dishId === null ? undefined : recipes?.get(item.dishId);
+
+  return {
+    id: item.id,
+    name: item.name,
+    quantity: item.quantity,
+    note: item.note,
+    status: item.status,
+    ingredients: recipe?.ingredients ?? [],
+    allergens: recipe?.allergens ?? [],
+  };
+};
+
+export function toKitchenTicketDto(
+  ticket: KotTicket,
+  now: Date = new Date(),
+  recipes?: RecipeLookup,
+): KitchenTicketDto {
   const waitingMs = now.getTime() - ticket.createdAt.getTime();
 
   return {
@@ -125,7 +142,7 @@ export function toKitchenTicketDto(ticket: KotTicket, now: Date = new Date()): K
     waitingMinutes: Math.max(0, Math.floor(waitingMs / 60_000)),
     items: sortByCreation(ticket.items ?? [])
       .filter((item) => item.status !== OrderItemStatus.CANCELLED)
-      .map(toKitchenItemDto),
+      .map((item) => toKitchenItemDto(item, recipes)),
     printedAt: ticket.printedAt,
     createdAt: ticket.createdAt,
   };
@@ -140,7 +157,7 @@ export function toKotPrintDto(ticket: KotTicket, restaurantName: string): KotPri
     businessDate: ticket.businessDate,
     items: sortByCreation(ticket.items ?? [])
       .filter((item) => item.status !== OrderItemStatus.CANCELLED)
-      .map(toKitchenItemDto),
+      .map((item) => toKitchenItemDto(item)),
     createdAt: ticket.createdAt,
   };
 }

@@ -233,8 +233,13 @@ export interface KitchenTicketItem {
   id: number;
   name: string;
   quantity: number;
+  /** What the table asked for. Shown to the cook in full. */
   note: string | null;
   status: OrderItemStatus;
+  /** What goes into the dish, as recorded on the menu. Empty when it has no recipe. */
+  ingredients: string[];
+  /** Allergen notes from those ingredients, deduplicated. */
+  allergens: string[];
 }
 
 /** Carries no money: a kitchen screen is often on a wall. */

@@ -16,6 +16,11 @@ import { RestaurantUserDto } from './dto/restaurant-user.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { RestaurantUser } from './entities/restaurant-user.entity';
 import { Restaurant } from './entities/restaurant.entity';
+import {
+  generateKitchenCode,
+  isWellFormedKitchenCode,
+  normaliseKitchenCode,
+} from './kitchen-code';
 
 @Injectable()
 export class RestaurantsService {
@@ -97,9 +102,65 @@ export class RestaurantsService {
       // configures tax, so this is 0 rather than any regional default.
       taxRate: 0,
       taxNumber: null,
+      kitchenCode: await this.unusedKitchenCode(manager),
     });
 
     return repository.save(restaurant);
+  }
+
+  /**
+   * A kitchen code no other restaurant holds.
+   *
+   * The unique index is the real guarantee; this only avoids handing back a code
+   * that is already taken, which at 887 million possibilities is rare enough that
+   * a handful of attempts is plenty.
+   */
+  private async unusedKitchenCode(manager?: EntityManager): Promise<string> {
+    const repository = manager ? manager.getRepository(Restaurant) : this.restaurantsRepository;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const code = generateKitchenCode();
+
+      if (!(await repository.exists({ where: { kitchenCode: code } }))) return code;
+    }
+
+    throw new ConflictException('Could not allocate a kitchen code. Please try again.');
+  }
+
+  /** The restaurant a kitchen code belongs to, or null. Codes are case-insensitive. */
+  async findByKitchenCode(code: string): Promise<Restaurant | null> {
+    const normalised = normaliseKitchenCode(code);
+
+    if (!isWellFormedKitchenCode(normalised)) return null;
+
+    const restaurant = await this.restaurantsRepository.findOne({
+      where: { kitchenCode: normalised },
+    });
+
+    // Exact comparison as well: SQLite (tests) and a case-insensitive MySQL
+    // collation would both otherwise let a near-miss through.
+    return restaurant?.kitchenCode === normalised ? restaurant : null;
+  }
+
+  /** The current kitchen code, for the owner to read off and type into a screen. */
+  async kitchenCode(restaurantId: number): Promise<string> {
+    return (await this.findById(restaurantId)).kitchenCode;
+  }
+
+  /**
+   * Issues a new code and retires the old one immediately.
+   *
+   * This is how a restaurant removes a screen it no longer controls - a tablet
+   * that walked out of the kitchen - so the old code has to stop working at once
+   * rather than when some session expires.
+   */
+  async regenerateKitchenCode(restaurantId: number): Promise<string> {
+    const restaurant = await this.findById(restaurantId);
+
+    restaurant.kitchenCode = await this.unusedKitchenCode();
+    await this.restaurantsRepository.save(restaurant);
+
+    return restaurant.kitchenCode;
   }
 
   /** Links a user to a restaurant. The unique index blocks duplicate links. */

@@ -3,7 +3,6 @@
 import {
   Armchair,
   Carrot,
-  ChefHat,
   LayoutDashboard,
   LogOut,
   QrCode,
@@ -19,7 +18,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/cn';
-import { BILLING_ROLES, KITCHEN_ROLES, ORDER_WRITE_ROLES, TABLE_ADMIN_ROLES } from '@/lib/permissions';
+import { BILLING_ROLES, ORDER_WRITE_ROLES, TABLE_ADMIN_ROLES } from '@/lib/permissions';
 import type { UserRole } from '@/lib/types';
 import { Avatar, PlateoWordmark } from './brand';
 
@@ -45,7 +44,6 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: '/restaurant/tables', label: 'Tables', icon: Armchair, roles: ORDER_WRITE_ROLES },
       { href: '/restaurant/qr-codes', label: 'QR Codes', icon: QrCode, roles: TABLE_ADMIN_ROLES },
       { href: '/restaurant/orders', label: 'Bills', icon: Receipt, roles: ORDER_WRITE_ROLES },
-      { href: '/restaurant/kitchen', label: 'Kitchen', icon: ChefHat, roles: KITCHEN_ROLES },
       // Money: owners and managers only, never waiters or the kitchen.
       { href: '/restaurant/reports', label: 'Reports', icon: TrendingUp, roles: BILLING_ROLES },
     ],

@@ -1,10 +1,12 @@
-import { Body, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RESTAURANT_ADMIN_ROLES, UserRole } from 'src/common/enums';
+import { KitchenCodeDto } from './dto/kitchen-code.dto';
+import { formatKitchenCode } from './kitchen-code';
 import { RestaurantStatsDto } from './dto/restaurant-stats.dto';
 import { RestaurantUserDto } from './dto/restaurant-user.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
@@ -52,6 +54,37 @@ export class RestaurantsController {
   @ApiOkResponse({ type: [RestaurantUserDto] })
   getMyRestaurantUsers(@ActiveRestaurantId() restaurantId: number): Promise<RestaurantUserDto[]> {
     return this.restaurantsService.findMembers(restaurantId);
+  }
+
+  @Get('me/kitchen-code')
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'The code a kitchen screen signs in with',
+    description:
+      'Owners only. This is a credential, so it is never included in an ordinary restaurant ' +
+      'response - it is read here, shown in the admin app, and typed into the kitchen screen.',
+  })
+  @ApiOkResponse({ type: KitchenCodeDto })
+  async getKitchenCode(@ActiveRestaurantId() restaurantId: number): Promise<KitchenCodeDto> {
+    const code = await this.restaurantsService.kitchenCode(restaurantId);
+
+    return { code, display: formatKitchenCode(code) };
+  }
+
+  @Post('me/kitchen-code/regenerate')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Issue a new kitchen code',
+    description:
+      'The old code stops working immediately, which is how a restaurant cuts off a screen it no ' +
+      'longer controls. Every kitchen screen must then be signed in again with the new code.',
+  })
+  @ApiOkResponse({ type: KitchenCodeDto })
+  async regenerateKitchenCode(@ActiveRestaurantId() restaurantId: number): Promise<KitchenCodeDto> {
+    const code = await this.restaurantsService.regenerateKitchenCode(restaurantId);
+
+    return { code, display: formatKitchenCode(code) };
   }
 
   @Get('me/stats')

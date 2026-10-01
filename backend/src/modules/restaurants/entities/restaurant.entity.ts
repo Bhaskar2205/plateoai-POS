@@ -8,6 +8,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { RestaurantStatus } from 'src/common/enums';
 import { numericTransformer } from 'src/common/transformers/numeric.transformer';
 import { RestaurantUser } from './restaurant-user.entity';
@@ -48,6 +49,18 @@ export class Restaurant {
   @Index('UQ_restaurants_public_slug', { unique: true })
   @Column({ type: 'varchar', length: 190, name: 'public_slug' })
   publicSlug: string;
+
+  /**
+   * The code a kitchen screen signs in with.
+   *
+   * A credential, so it is `@Exclude()`d: it must never ride along in an ordinary
+   * restaurant response. The owner reads it from one endpoint that exists only
+   * for that purpose.
+   */
+  @Exclude()
+  @Index('UQ_restaurants_kitchen_code', { unique: true })
+  @Column({ type: 'varchar', length: 16, name: 'kitchen_code' })
+  kitchenCode: string;
 
   @ApiProperty({ nullable: true, example: 'Seasonal bowls and salads.' })
   @Column({ type: 'text', nullable: true })

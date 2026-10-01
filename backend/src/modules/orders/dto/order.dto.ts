@@ -173,11 +173,31 @@ export class KitchenTicketItemDto {
   @ApiProperty({ example: 2 })
   quantity: number;
 
-  @ApiProperty({ nullable: true, example: 'No onion, less spicy' })
+  @ApiProperty({
+    nullable: true,
+    example: 'No onion, less spicy',
+    description: 'What the table asked for. Shown to the cook, never abbreviated.',
+  })
   note: string | null;
 
   @ApiProperty({ enum: OrderItemStatus, example: OrderItemStatus.PREPARING })
   status: OrderItemStatus;
+
+  @ApiProperty({
+    type: [String],
+    example: ['Paneer', 'Cashew paste', 'Yoghurt'],
+    description:
+      "What goes into the dish, as the kitchen recorded it on the menu. Empty when the dish has " +
+      'no recipe, or when the dish has since been deleted.',
+  })
+  ingredients: string[];
+
+  @ApiProperty({
+    type: [String],
+    example: ['Contains milk'],
+    description: 'Allergen notes from those ingredients, deduplicated.',
+  })
+  allergens: string[];
 }
 
 /**

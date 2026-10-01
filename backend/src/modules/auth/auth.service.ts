@@ -18,6 +18,8 @@ import { RestaurantsService } from 'src/modules/restaurants/restaurants.service'
 import { User } from 'src/modules/users/entities/user.entity';
 import { UsersService } from 'src/modules/users/users.service';
 import { AuthResponseDto, AuthUserDto, MeResponseDto } from './dto/auth-response.dto';
+import { kitchenCodeFingerprint } from 'src/modules/restaurants/kitchen-code';
+import { KitchenSessionDto, KitchenSessionResponseDto } from './dto/kitchen-session.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 
@@ -178,6 +180,41 @@ export class AuthService {
     if (restaurant.status === RestaurantStatus.INACTIVE && user.role !== UserRole.SUPER_ADMIN) {
       throw new ForbiddenException('This restaurant is inactive. Contact Plateo support.');
     }
+  }
+
+  /**
+   * Signs a kitchen screen in with the restaurant's kitchen code.
+   *
+   * Every wrong code gets the same refusal and the same timing, so the endpoint
+   * cannot be used to learn which codes exist; the rate limit on the route is
+   * what makes walking the code space impractical.
+   */
+  async kitchenSession(dto: KitchenSessionDto): Promise<KitchenSessionResponseDto> {
+    const restaurant = await this.restaurantsService.findByKitchenCode(dto.code);
+
+    if (!restaurant) {
+      await burnTimingDecoy();
+      throw new UnauthorizedException('That kitchen code was not recognised.');
+    }
+
+    if (restaurant.status === RestaurantStatus.INACTIVE) {
+      throw new UnauthorizedException('That kitchen code was not recognised.');
+    }
+
+    const accessToken = await this.jwtService.signAsync({
+      rid: restaurant.id,
+      scope: 'kitchen',
+      // Ties the screen to the code it signed in with, so issuing a new code
+      // signs every existing screen out on its next request.
+      kcv: kitchenCodeFingerprint(restaurant.kitchenCode),
+    });
+
+    return {
+      accessToken,
+      tokenType: 'Bearer',
+      expiresIn: AuthService.expiresInSeconds(this.jwtConfig.expiresIn),
+      restaurantName: restaurant.name,
+    };
   }
 
   private async buildAuthResponse(

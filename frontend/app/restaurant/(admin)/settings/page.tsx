@@ -8,6 +8,8 @@ import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { useToast } from '@/components/ui/toast';
+import { canManageTables } from '@/lib/permissions';
+import { KitchenCodeCard } from '@/components/dashboard/kitchen-code-card';
 import { ROLE_LABELS } from '@/components/dashboard/sidebar';
 import { PageHeader } from '@/components/page-header';
 
@@ -42,6 +44,9 @@ export default function SettingsPage() {
       <PageHeader title="Settings" description="Your account, your public menu link and this browser session." />
 
       <div className="space-y-6">
+        {/* Only owners may read the kitchen code, so only they are shown the card. */}
+        {canManageTables(session.user.role) && <KitchenCodeCard />}
+
         <Card>
           <CardHeader title="Account" description="The person signed in to this dashboard." />
           <CardBody>

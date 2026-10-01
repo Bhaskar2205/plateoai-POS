@@ -15,6 +15,12 @@ export interface AuthenticatedUser {
   name: string;
   role: UserRole;
   restaurantId: number;
+  /**
+   * True when the caller is a kitchen screen signed in with a kitchen code
+   * rather than a person signed in with an account. There is no user row behind
+   * it, so anything that loads the account must refuse it.
+   */
+  kitchenDevice?: boolean;
 }
 
 export interface AuthenticatedRequest extends Request {

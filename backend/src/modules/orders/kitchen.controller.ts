@@ -8,6 +8,7 @@ import {
 } from '@nestjs/swagger';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
+import { KitchenScreen } from 'src/common/decorators/kitchen-screen.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { KITCHEN_ROLES } from 'src/common/enums';
@@ -26,6 +27,8 @@ import { KitchenService } from './kitchen.service';
 @ApiTags('Kitchen')
 @ApiAuth()
 @Roles(...KITCHEN_ROLES)
+// The one place a kitchen screen signed in with a kitchen code may reach.
+@KitchenScreen()
 @ApiNotFoundResponse({
   description: 'No such ticket in the authenticated restaurant.',
   type: ErrorResponseDto,

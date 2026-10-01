@@ -5,6 +5,7 @@ import { KotStatus, OrderItemStatus } from 'src/common/enums';
 import { businessDateFor } from 'src/common/utils/business-date.util';
 import { QueryKotTicketsDto } from './dto/order-actions.dto';
 import { KitchenTicketDto } from './dto/order.dto';
+import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 import { KotTicket } from './entities/kot-ticket.entity';
 import { toKitchenTicketDto } from './order-mapper';
 import { syncTicketItemStatus } from './order-writer';
@@ -48,6 +49,8 @@ export class KitchenService {
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(KotTicket) private readonly ticketsRepository: Repository<KotTicket>,
+    @InjectRepository(DishIngredient)
+    private readonly recipesRepository: Repository<DishIngredient>,
   ) {}
 
   /**
@@ -71,12 +74,62 @@ export class KitchenService {
     });
 
     const now = new Date();
+    const recipes = await this.recipesFor(restaurantId, tickets);
 
-    return tickets.map((ticket) => toKitchenTicketDto(ticket, now));
+    return tickets.map((ticket) => toKitchenTicketDto(ticket, now, recipes));
   }
 
   async findTicket(restaurantId: number, ticketId: number): Promise<KitchenTicketDto> {
-    return toKitchenTicketDto(await this.loadTicket(restaurantId, ticketId));
+    const ticket = await this.loadTicket(restaurantId, ticketId);
+
+    return toKitchenTicketDto(ticket, new Date(), await this.recipesFor(restaurantId, [ticket]));
+  }
+
+  /**
+   * What goes into every dish on these tickets, in one query.
+   *
+   * A cook wants to see the components without leaving the board - to start the
+   * mise en place, and to answer "does this have nuts in it" without walking to
+   * the till. Recipe lines are re-checked against the restaurant, so a dish can
+   * never show another tenant's ingredients even if data were mis-linked.
+   */
+  private async recipesFor(
+    restaurantId: number,
+    tickets: KotTicket[],
+  ): Promise<Map<number, { ingredients: string[]; allergens: string[] }>> {
+    const recipes = new Map<number, { ingredients: string[]; allergens: string[] }>();
+
+    const dishIds = [
+      ...new Set(
+        tickets
+          .flatMap((ticket) => ticket.items ?? [])
+          .map((item) => item.dishId)
+          .filter((dishId): dishId is number => dishId !== null),
+      ),
+    ];
+
+    if (dishIds.length === 0) return recipes;
+
+    const lines = await this.recipesRepository.find({
+      where: { dishId: In(dishIds) },
+      relations: { ingredient: true },
+      order: { id: 'ASC' },
+    });
+
+    for (const line of lines) {
+      if (!line.ingredient || line.ingredient.restaurantId !== restaurantId) continue;
+
+      const recipe = recipes.get(line.dishId) ?? { ingredients: [], allergens: [] };
+
+      recipe.ingredients.push(line.ingredient.name);
+
+      const allergen = line.ingredient.allergenInfo?.trim();
+      if (allergen && !recipe.allergens.includes(allergen)) recipe.allergens.push(allergen);
+
+      recipes.set(line.dishId, recipe);
+    }
+
+    return recipes;
   }
 
   /**

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
@@ -25,7 +26,15 @@ import { OrdersService } from './orders.service';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, OrderItem, KotTicket, Dish, RestaurantTable, Restaurant]),
+    TypeOrmModule.forFeature([
+      Order,
+      OrderItem,
+      KotTicket,
+      Dish,
+      DishIngredient,
+      RestaurantTable,
+      Restaurant,
+    ]),
   ],
   controllers: [OrdersController, KitchenController, DinerOrdersController],
   providers: [OrdersService, KitchenService, DinerOrdersService],
