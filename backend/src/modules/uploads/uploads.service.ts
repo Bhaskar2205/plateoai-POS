@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import sharp from 'sharp';
 import type { AppConfig } from 'src/config/configuration';
+import { CloudflareImagesStorage } from './storage/cloudflare-images.storage';
+import { LocalDiskPhotoStorage } from './storage/local-disk.storage';
+import type { PhotoStorage, StoredPhoto } from './storage/photo-storage.interface';
 
 /**
  * Dish photos: accept a file from a phone, and store something safe to serve.
@@ -52,21 +53,48 @@ const SIGNATURES: Array<{ format: string; test: (bytes: Buffer) => boolean }> = 
 
 export const ACCEPTED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
-export interface StoredPhoto {
-  /** Absolute URL to save on the dish. */
-  url: string;
-  width: number;
-  height: number;
-  bytes: number;
-}
+export type { StoredPhoto };
 
 @Injectable()
 export class UploadsService {
   private readonly logger = new Logger(UploadsService.name);
   private readonly config: AppConfig['uploads'];
 
+  private readonly storage: PhotoStorage;
+
   constructor(configService: ConfigService) {
     this.config = configService.get<AppConfig['uploads']>('uploads')!;
+
+    // Chosen once, at boot, and logged. Which store is in use decides whether
+    // photos survive a deploy, so it should never be a question anybody has to
+    // work out from behaviour.
+    this.storage = CloudflareImagesStorage.isConfigured(this.config.cloudflare)
+      ? new CloudflareImagesStorage(this.config.cloudflare)
+      : new LocalDiskPhotoStorage(this.config);
+
+    this.logger.log(`Dish photos are stored in ${this.storage.name}.`);
+  }
+
+  /** The grid-sized URL for a photo, whichever store it came from. */
+  thumbnailFor(url: string): string {
+    return this.storage.thumbnailFor(url);
+  }
+
+  /**
+   * Removes a photo that is no longer referenced.
+   *
+   * Never throws. It runs when a dish photo is replaced or a dish is deleted, and
+   * failing either of those because an old file could not be removed would be a
+   * worse bug than the orphan it is preventing.
+   */
+  async removeDishPhoto(url: string | null | undefined): Promise<void> {
+    if (!url) return;
+
+    try {
+      await this.storage.remove(url);
+    } catch (error) {
+      this.logger.warn(`Could not remove a replaced photo: ${(error as Error).message}`);
+    }
   }
 
   get maxBytes(): number {
@@ -121,18 +149,7 @@ export class UploadsService {
       throw new BadRequestException('That image could not be read. Try a different photo.');
     }
 
-    const name = `${randomBytes(16).toString('hex')}.webp`;
-    const directory = join(this.baseDirectory(), 'dishes', String(restaurantId));
-
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, name), output);
-
-    return {
-      url: `${this.config.publicApiUrl}/uploads/dishes/${restaurantId}/${name}`,
-      width,
-      height,
-      bytes: output.length,
-    };
+    return this.storage.store(restaurantId, output, width, height);
   }
 
   /** Absolute path of the uploads root, resolved once from the configured value. */

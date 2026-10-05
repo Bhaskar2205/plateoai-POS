@@ -8,12 +8,20 @@ export class DishPhotoDto {
   })
   url: string;
 
+  @ApiProperty({
+    example: 'https://imagedelivery.net/<hash>/<id>/thumb',
+    description:
+      'Grid-sized version of the same photo. Equal to `url` when the backing store cannot ' +
+      'resize, so a client can always use it without checking.',
+  })
+  thumbnailUrl: string;
+
   @ApiProperty({ example: 1600 })
   width: number;
 
   @ApiProperty({ example: 1067 })
   height: number;
 
-  @ApiProperty({ example: 148236, description: 'Size on disk after re-encoding, in bytes.' })
+  @ApiProperty({ example: 148236, description: 'Size after re-encoding, in bytes.' })
   bytes: number;
 }

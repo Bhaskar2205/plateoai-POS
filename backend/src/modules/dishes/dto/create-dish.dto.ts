@@ -17,7 +17,7 @@ import {
   IsPositive,
   ValidateNested,
 } from 'class-validator';
-import { DietType } from 'src/common/enums';
+import { DietType, TaxGroup } from 'src/common/enums';
 import { DishIngredientInputDto } from './dish-ingredients.dto';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
@@ -153,6 +153,17 @@ export class CreateDishDto {
   @IsOptional()
   @IsIn(Object.values(DietType))
   dietType?: DietType;
+
+  @ApiPropertyOptional({
+    enum: TaxGroup,
+    default: TaxGroup.STANDARD,
+    description:
+      'Which of the restaurant tax components apply. Alcohol sits outside GST and takes state VAT; ' +
+      'a sealed packaged item can carry its own rate. Defaults to ordinary food and drink.',
+  })
+  @IsOptional()
+  @IsIn(Object.values(TaxGroup))
+  taxGroup?: TaxGroup;
 
   @ApiPropertyOptional({ example: true, default: true })
   @IsOptional()

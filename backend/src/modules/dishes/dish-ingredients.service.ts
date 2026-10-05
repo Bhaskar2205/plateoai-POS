@@ -8,6 +8,8 @@ import {
   DishIngredientInputDto,
   DishIngredientResponseDto,
 } from './dto/dish-ingredients.dto';
+import { canConvert, recipeLineCostPaise, UNIT_LABELS } from 'src/modules/inventory/inventory-units';
+import { parseRecipeUnit } from 'src/modules/inventory/recipe-consumption';
 import { DishIngredient } from './entities/dish-ingredient.entity';
 
 /**
@@ -97,6 +99,54 @@ export class DishIngredientsService {
       allergenInfo: row.ingredient?.allergenInfo ?? null,
       quantity: row.quantity,
       unit: row.unit,
+      ...DishIngredientsService.costOf(row),
+    };
+  }
+
+  /**
+   * What one recipe line costs, at today's ingredient cost.
+   *
+   * Worked out on read rather than stored, because a stored dish cost would go
+   * stale the moment a supplier changed their price and nobody would know which
+   * figures were old. A settled bill is a different matter: it keeps the cost
+   * recorded on its movements and is never recalculated.
+   *
+   * Returns a note instead of a number when it genuinely cannot be worked out,
+   * which is better than a zero that reads as "free".
+   */
+  private static costOf(row: DishIngredient): { costPaise: number | null; costNote: string | null } {
+    const ingredient = row.ingredient;
+
+    if (!ingredient) return { costPaise: null, costNote: null };
+
+    const recipeUnit = parseRecipeUnit(row.unit);
+
+    if (!recipeUnit) {
+      return {
+        costPaise: null,
+        costNote: `${row.unit} is not a fixed amount, so this line cannot be costed or deducted from stock.`,
+      };
+    }
+
+    if (!canConvert(recipeUnit, ingredient.unit)) {
+      return {
+        costPaise: null,
+        costNote: `This line is in ${row.unit} but ${ingredient.name} is stocked in ${UNIT_LABELS[ingredient.unit]}, which cannot be compared.`,
+      };
+    }
+
+    const cost = Number(ingredient.costPerUnitPaise);
+
+    if (cost === 0) {
+      return {
+        costPaise: 0,
+        costNote: `No cost has been recorded for ${ingredient.name} yet.`,
+      };
+    }
+
+    return {
+      costPaise: recipeLineCostPaise(row.quantity, recipeUnit, ingredient.unit, cost),
+      costNote: null,
     };
   }
 

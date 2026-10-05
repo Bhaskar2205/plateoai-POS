@@ -6,6 +6,13 @@ import { IngredientsService } from 'src/modules/ingredients/ingredients.service'
 import { assertIngredientsOwned, replaceRecipe } from './dish-recipe.writer';
 import { CreateDishDto, UpdateDishDto } from './dto/create-dish.dto';
 import { QueryDishDto } from './dto/query-dish.dto';
+import {
+  AuditAction,
+  AuditEntity,
+  TaxGroup,
+} from 'src/common/enums';
+import { UploadsService } from 'src/modules/uploads/uploads.service';
+import { AuditService, type AuditContext } from 'src/modules/audit/audit.service';
 import { Dish } from './entities/dish.entity';
 
 @Injectable()
@@ -17,6 +24,8 @@ export class DishesService {
     private readonly dishesRepository: Repository<Dish>,
     private readonly categoriesService: CategoriesService,
     private readonly ingredientsService: IngredientsService,
+    private readonly auditService: AuditService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   /**
@@ -46,6 +55,7 @@ export class DishesService {
       fatGrams: dto.fatGrams ?? null,
       preparationTimeMinutes: dto.preparationTimeMinutes ?? null,
       dietType: dto.dietType ?? null,
+      taxGroup: dto.taxGroup ?? TaxGroup.STANDARD,
       isAvailable: dto.isAvailable ?? true,
     });
 
@@ -105,8 +115,21 @@ export class DishesService {
    * Partial update. When `ingredients` is present the recipe is replaced in the
    * same transaction as the dish fields - both change, or neither does.
    */
-  async update(restaurantId: number, id: number, dto: UpdateDishDto): Promise<Dish> {
+  async update(
+    restaurantId: number,
+    id: number,
+    dto: UpdateDishDto,
+    userId?: number,
+    context?: AuditContext,
+  ): Promise<Dish> {
     const dish = await this.getOwnedDish(restaurantId, id);
+
+    // Captured before the assignments below overwrite them.
+    const before = {
+      price: dish.price,
+      taxGroup: dish.taxGroup,
+      isAvailable: dish.isAvailable,
+    };
 
     if (dto.categoryId !== undefined) {
       dish.categoryId = await this.resolveCategoryId(restaurantId, dto.categoryId);
@@ -119,6 +142,15 @@ export class DishesService {
     if (dto.name !== undefined) dish.name = dto.name;
     if (dto.description !== undefined) dish.description = dto.description || null;
     if (dto.price !== undefined) dish.price = dto.price;
+    // Captured before the field is overwritten, so the old photo can be removed
+    // once the change is safely committed. Without this every replacement leaves
+    // a file behind - harmless on a local volume, but Cloudflare bills per image
+    // stored, so an owner retouching a photo a few times pays for it forever.
+    const replacedPhoto =
+      dto.imageUrl !== undefined && dish.imageUrl && dish.imageUrl !== dto.imageUrl
+        ? dish.imageUrl
+        : null;
+
     if (dto.imageUrl !== undefined) dish.imageUrl = dto.imageUrl || null;
     if (dto.proteinGrams !== undefined) dish.proteinGrams = dto.proteinGrams;
     if (dto.calories !== undefined) dish.calories = dto.calories;
@@ -128,6 +160,7 @@ export class DishesService {
       dish.preparationTimeMinutes = dto.preparationTimeMinutes ?? null;
     }
     if (dto.dietType !== undefined) dish.dietType = dto.dietType ?? null;
+    if (dto.taxGroup !== undefined) dish.taxGroup = dto.taxGroup ?? TaxGroup.STANDARD;
     if (dto.isAvailable !== undefined) dish.isAvailable = dto.isAvailable;
 
     const { ingredients } = dto;
@@ -138,14 +171,59 @@ export class DishesService {
       if (ingredients) {
         await replaceRecipe(manager, dish.id, ingredients);
       }
+
+      // Three separate actions rather than one "dish changed": a price rise, a
+      // dish going off the menu and a dish being reclassified for tax are
+      // different questions, and an owner filters for one of them at a time.
+      const changes: Array<[AuditAction, Record<string, unknown>, Record<string, unknown>]> = [];
+
+      if (dto.price !== undefined && dto.price !== before.price) {
+        changes.push([AuditAction.DISH_PRICE_CHANGED, { price: before.price }, { price: dish.price }]);
+      }
+      if (dto.taxGroup !== undefined && dish.taxGroup !== before.taxGroup) {
+        changes.push([
+          AuditAction.DISH_TAX_GROUP_CHANGED,
+          { taxGroup: before.taxGroup },
+          { taxGroup: dish.taxGroup },
+        ]);
+      }
+      if (dto.isAvailable !== undefined && dish.isAvailable !== before.isAvailable) {
+        changes.push([
+          AuditAction.DISH_AVAILABILITY_CHANGED,
+          { isAvailable: before.isAvailable },
+          { isAvailable: dish.isAvailable },
+        ]);
+      }
+
+      for (const [action, oldValue, newValue] of changes) {
+        await this.auditService.recordIn(manager, {
+          restaurantId,
+          userId: userId ?? null,
+          action,
+          entityType: AuditEntity.DISH,
+          entityId: dish.id,
+          oldValue: { name: dish.name, ...oldValue },
+          newValue,
+          context,
+        });
+      }
     });
+
+    // After the commit, never inside it. Deleting a file is not transactional, so
+    // doing it before would destroy the old photo and then, on a rollback, leave
+    // the dish pointing at it.
+    await this.uploadsService.removeDishPhoto(replacedPhoto);
 
     return this.findOne(restaurantId, id);
   }
 
   async remove(restaurantId: number, id: number): Promise<void> {
     const dish = await this.getOwnedDish(restaurantId, id);
+    const { imageUrl } = dish;
+
     await this.dishesRepository.remove(dish);
+    // The row is gone, so nothing references the photo any more.
+    await this.uploadsService.removeDishPhoto(imageUrl);
   }
 
   /**

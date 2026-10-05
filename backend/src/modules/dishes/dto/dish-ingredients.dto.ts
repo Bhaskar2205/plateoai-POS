@@ -84,4 +84,16 @@ export class DishIngredientResponseDto {
 
   @ApiProperty({ example: 'g' })
   unit: string;
+
+  /**
+   * What this line costs to make one dish, in whole paise, at today's ingredient
+   * cost. Null when it cannot be worked out - no cost recorded against the
+   * ingredient, or a unit like "tbsp" that is not a fixed amount of anything.
+   */
+  @ApiProperty({ example: 4800, nullable: true, description: 'Cost of this line in paise.' })
+  costPaise: number | null;
+
+  /** Why the cost could not be worked out, for showing next to the line. */
+  @ApiProperty({ nullable: true, example: 'tbsp is not a measurable amount.' })
+  costNote: string | null;
 }

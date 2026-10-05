@@ -21,6 +21,9 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
+import { RequestContext } from 'src/common/decorators/request-context.decorator';
+import type { AuditContext } from 'src/modules/audit/audit.service';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
@@ -96,8 +99,10 @@ export class DishesController {
     @ActiveRestaurantId() restaurantId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateDishDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
   ): Promise<Dish> {
-    return this.dishesService.update(restaurantId, id, dto);
+    return this.dishesService.update(restaurantId, id, dto, userId, context);
   }
 
   @Delete(':id')

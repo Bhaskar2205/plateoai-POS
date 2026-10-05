@@ -4,6 +4,8 @@ import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CategoriesService } from 'src/modules/categories/categories.service';
 import { IngredientsService } from 'src/modules/ingredients/ingredients.service';
+import { AuditService } from 'src/modules/audit/audit.service';
+import { UploadsService } from 'src/modules/uploads/uploads.service';
 import { DishesService } from './dishes.service';
 import { Dish } from './entities/dish.entity';
 
@@ -47,6 +49,16 @@ describe('DishesService', () => {
         { provide: CategoriesService, useValue: categoriesService },
         { provide: IngredientsService, useValue: ingredientsService },
         { provide: getDataSourceToken(), useValue: dataSourceMock },
+        // These tests are about what gets written to a dish, not about the
+        // audit trail; the recorder is stubbed so a failure here is never
+        // really a failure to log.
+        { provide: AuditService, useValue: { record: jest.fn(), recordIn: jest.fn() } },
+        // Likewise for photo cleanup: these tests are about what is written to a
+        // dish, not about which file gets deleted afterwards.
+        {
+          provide: UploadsService,
+          useValue: { removeDishPhoto: jest.fn(), thumbnailFor: (url: string) => url },
+        },
       ],
     }).compile();
 

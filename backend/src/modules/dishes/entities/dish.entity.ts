@@ -10,7 +10,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { DietType } from 'src/common/enums';
+import { DietType, TaxGroup } from 'src/common/enums';
 import { numericTransformer } from 'src/common/transformers/numeric.transformer';
 import { Category } from 'src/modules/categories/entities/category.entity';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
@@ -116,6 +116,16 @@ export class Dish {
   @ApiProperty({ enum: DietType, nullable: true, example: DietType.VEG })
   @Column({ type: 'varchar', length: 16, nullable: true, name: 'diet_type' })
   dietType: DietType | null;
+
+  /**
+   * Which of the restaurant's tax components apply to this dish. Everything is
+   * STANDARD unless the restaurant says otherwise, which is right for a menu of
+   * food: alcohol is outside GST and has to be marked as such, and a sealed
+   * packaged item can carry a different rate from the kitchen's own cooking.
+   */
+  @ApiProperty({ enum: TaxGroup, example: TaxGroup.STANDARD })
+  @Column({ type: 'varchar', length: 16, name: 'tax_group', default: TaxGroup.STANDARD })
+  taxGroup: TaxGroup;
 
   @ApiProperty({ example: true })
   @Column({ type: 'boolean', default: true, name: 'is_available' })
