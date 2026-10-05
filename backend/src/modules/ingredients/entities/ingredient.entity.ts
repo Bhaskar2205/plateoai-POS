@@ -10,6 +10,8 @@ import {
   Unique,
   UpdateDateColumn,
 } from 'typeorm';
+import { IngredientCategory, IngredientUnit } from 'src/common/enums';
+import { quantityTransformer } from 'src/common/transformers/numeric.transformer';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 
@@ -43,6 +45,61 @@ export class Ingredient {
   })
   @Column({ type: 'varchar', length: 255, nullable: true, name: 'allergen_info' })
   allergenInfo: string | null;
+
+  /**
+   * Inventory. All of it optional, because an ingredient existed in Plateo long
+   * before stock did - it is what the public menu lists under "what's inside" -
+   * and a restaurant that never opens the inventory screen must keep working
+   * exactly as it did.
+   */
+  @ApiProperty({ enum: IngredientCategory, example: IngredientCategory.DAIRY })
+  @Column({ type: 'varchar', length: 24, default: IngredientCategory.OTHER })
+  category: IngredientCategory;
+
+  @ApiProperty({ enum: IngredientUnit, example: IngredientUnit.KG, description: 'How it is counted.' })
+  @Column({ type: 'varchar', length: 16, default: IngredientUnit.GRAM })
+  unit: IngredientUnit;
+
+  @ApiProperty({ example: 8.4, description: 'What is on the shelf now, in `unit`.' })
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 3,
+    name: 'current_quantity',
+    default: 0,
+    transformer: quantityTransformer,
+  })
+  currentQuantity: number;
+
+  @ApiProperty({ example: 5, description: 'Below this it reads as running low. 0 means never warn.' })
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 3,
+    name: 'minimum_quantity',
+    default: 0,
+    transformer: quantityTransformer,
+  })
+  minimumQuantity: number;
+
+  @ApiProperty({ example: 10, description: 'How much is usually bought at a time.' })
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 3,
+    name: 'reorder_quantity',
+    default: 0,
+    transformer: quantityTransformer,
+  })
+  reorderQuantity: number;
+
+  @ApiProperty({ example: 32000, description: 'Cost of one `unit`, in whole paise. 32000 is ₹320.' })
+  @Column({ type: 'bigint', name: 'cost_per_unit_paise', default: 0 })
+  costPerUnitPaise: string;
+
+  @ApiProperty({ example: true, description: 'Switched off rather than deleted, so history reads straight.' })
+  @Column({ type: 'boolean', name: 'is_active', default: true })
+  isActive: boolean;
 
   @ApiProperty()
   @CreateDateColumn({ name: 'created_at' })

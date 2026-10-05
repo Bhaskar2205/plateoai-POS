@@ -1,6 +1,9 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Like, Not, Repository } from 'typeorm';
+import { IngredientCategory, IngredientUnit } from 'src/common/enums';
+import { AuditContext } from 'src/modules/audit/audit.service';
+import { InventoryService } from 'src/modules/inventory/inventory.service';
 import { CreateIngredientDto, UpdateIngredientDto } from './dto/create-ingredient.dto';
 import { Ingredient } from './entities/ingredient.entity';
 
@@ -9,19 +12,48 @@ export class IngredientsService {
   constructor(
     @InjectRepository(Ingredient)
     private readonly ingredientsRepository: Repository<Ingredient>,
+    private readonly inventoryService: InventoryService,
   ) {}
 
-  async create(restaurantId: number, dto: CreateIngredientDto): Promise<Ingredient> {
+  async create(
+    restaurantId: number,
+    dto: CreateIngredientDto,
+    userId?: number,
+    context?: AuditContext,
+  ): Promise<Ingredient> {
     await this.assertNameIsFree(restaurantId, dto.name);
 
-    const ingredient = this.ingredientsRepository.create({
-      restaurantId,
-      name: dto.name,
-      description: dto.description || null,
-      allergenInfo: dto.allergenInfo || null,
-    });
+    const ingredient = await this.ingredientsRepository.save(
+      this.ingredientsRepository.create({
+        restaurantId,
+        name: dto.name,
+        description: dto.description || null,
+        allergenInfo: dto.allergenInfo || null,
+        category: dto.category ?? IngredientCategory.OTHER,
+        unit: dto.unit ?? IngredientUnit.GRAM,
+        minimumQuantity: dto.minimumQuantity ?? 0,
+        reorderQuantity: dto.reorderQuantity ?? 0,
+        costPerUnitPaise: String(dto.costPerUnitPaise ?? 0),
+        isActive: dto.isActive ?? true,
+        // Deliberately not set from the DTO. Opening stock arrives as a movement
+        // below, so no stock figure exists that the ledger cannot account for.
+        currentQuantity: 0,
+      }),
+    );
 
-    return this.ingredientsRepository.save(ingredient);
+    if (dto.openingQuantity && dto.openingQuantity > 0 && userId !== undefined) {
+      await this.inventoryService.recordOpeningStock(
+        restaurantId,
+        ingredient.id,
+        dto.openingQuantity,
+        userId,
+        context,
+      );
+
+      return this.findOne(restaurantId, ingredient.id);
+    }
+
+    return ingredient;
   }
 
   findAll(restaurantId: number, search?: string): Promise<Ingredient[]> {
@@ -56,7 +88,19 @@ export class IngredientsService {
 
     if (dto.description !== undefined) ingredient.description = dto.description || null;
     if (dto.allergenInfo !== undefined) ingredient.allergenInfo = dto.allergenInfo || null;
+    if (dto.category !== undefined) ingredient.category = dto.category;
+    if (dto.unit !== undefined) ingredient.unit = dto.unit;
+    if (dto.minimumQuantity !== undefined) ingredient.minimumQuantity = dto.minimumQuantity;
+    if (dto.reorderQuantity !== undefined) ingredient.reorderQuantity = dto.reorderQuantity;
+    if (dto.costPerUnitPaise !== undefined) {
+      ingredient.costPerUnitPaise = String(dto.costPerUnitPaise);
+    }
+    if (dto.isActive !== undefined) ingredient.isActive = dto.isActive;
 
+    // `currentQuantity` is absent on purpose. A stock figure only ever moves
+    // through a movement, so there is no way to edit it here and leave the ledger
+    // unable to explain it. `openingQuantity` is ignored too: an ingredient only
+    // opens once.
     return this.ingredientsRepository.save(ingredient);
   }
 

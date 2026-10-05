@@ -22,12 +22,15 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
+import { RequestContext } from 'src/common/decorators/request-context.decorator';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { MENU_WRITE_ROLES } from 'src/common/enums';
 import { CreateIngredientDto, UpdateIngredientDto } from './dto/create-ingredient.dto';
 import { Ingredient } from './entities/ingredient.entity';
+import { AuditContext } from 'src/modules/audit/audit.service';
 import { IngredientsService } from './ingredients.service';
 
 @ApiTags('Ingredients')
@@ -55,9 +58,11 @@ export class IngredientsController {
   })
   create(
     @ActiveRestaurantId() restaurantId: number,
+    @CurrentUser('id') userId: number,
     @Body() dto: CreateIngredientDto,
+    @RequestContext() context: AuditContext,
   ): Promise<Ingredient> {
-    return this.ingredientsService.create(restaurantId, dto);
+    return this.ingredientsService.create(restaurantId, dto, userId, context);
   }
 
   @Get()
