@@ -9,6 +9,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+// Shared with the admin app so there is one rule for where the API lives.
+import { API_BASE_URL } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import type { PublicDish } from '@/lib/public-menu';
 
@@ -40,8 +42,21 @@ const DinerCartContext = createContext<DinerCart | null>(null);
 /** Null when the menu was opened without a table - then no dish shows an Add button. */
 export const useDinerCart = (): DinerCart | null => useContext(DinerCartContext);
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:4000';
+
+/**
+ * A key the API uses to recognise a repeat of this submission.
+ *
+ * `crypto.randomUUID` needs a secure context, which a phone on a restaurant's
+ * plain-HTTP LAN is not, so there is a fallback. It only has to be unlikely to
+ * collide with this restaurant's other orders, not to be unguessable.
+ */
+function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 
 /** The API's per-line note limit, so a long note is stopped here rather than rejected. */
 const NOTE_MAX_LENGTH = 255;
@@ -76,6 +91,15 @@ export function DinerOrdering({
   const [lines, setLines] = useState<Map<number, CartLine>>(new Map());
   const [reviewing, setReviewing] = useState(false);
   const [submission, setSubmission] = useState<Submission>({ state: 'idle' });
+  /**
+   * One key per attempt at this cart, kept across retries.
+   *
+   * A double tap, or a tap on a flaky connection followed by another, sends the
+   * same key - so the second request is answered with the first one's receipt
+   * instead of putting the food on the bill twice. It is cleared once an order
+   * is placed, because the next order is genuinely a new one.
+   */
+  const [submissionKey, setSubmissionKey] = useState<string | null>(null);
 
   const add = useCallback((dish: PublicDish) => {
     setLines((current) => {
@@ -131,12 +155,15 @@ export function DinerOrdering({
   const place = async () => {
     setSubmission({ state: 'sending' });
 
+    const key = submissionKey ?? newIdempotencyKey();
+    if (submissionKey === null) setSubmissionKey(key);
+
     try {
       const response = await fetch(
         `${API_BASE_URL}/public/restaurants/${encodeURIComponent(slug)}/orders?table=${encodeURIComponent(tableToken)}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key },
           body: JSON.stringify({
             items: items.map((line) => ({
               dishId: line.dish.id,
@@ -159,6 +186,8 @@ export function DinerOrdering({
       setSubmission({ state: 'placed', count });
       setLines(new Map());
       setReviewing(false);
+      // The next order is a new one, so it gets a new key.
+      setSubmissionKey(null);
     } catch (error) {
       setSubmission({
         state: 'failed',

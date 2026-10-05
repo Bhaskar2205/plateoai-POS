@@ -89,6 +89,17 @@ export class PublicDishDto {
   @ApiProperty({ nullable: true, example: 'https://cdn.example.com/paneer-tikka-bowl.jpg' })
   imageUrl: string | null;
 
+  /**
+   * The same photo at menu-grid size.
+   *
+   * Always safe to use: it equals `imageUrl` when the photo is on a store that
+   * cannot resize, so a client never has to decide which field to read. A menu
+   * of sixty-four dishes is the difference between a few hundred kilobytes and
+   * several megabytes.
+   */
+  @ApiProperty({ nullable: true, example: 'https://imagedelivery.net/<hash>/<id>/thumb' })
+  thumbnailUrl: string | null;
+
   @ApiProperty({ nullable: true, example: 15, description: 'Typical preparation time in minutes.' })
   preparationTimeMinutes: number | null;
 

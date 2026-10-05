@@ -5,6 +5,9 @@ import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.enti
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
+import { UploadsModule } from 'src/modules/uploads/uploads.module';
+import { MenuCacheSubscriber } from './menu-cache.subscriber';
+import { PublicMenuCache } from './public-menu.cache';
 import { PublicMenuController } from './public-menu.controller';
 import { PublicMenuService } from './public-menu.service';
 
@@ -13,8 +16,11 @@ import { PublicMenuService } from './public-menu.service';
  * owner-facing services, so none of their write paths are reachable from here.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Restaurant, Category, Dish, DishIngredient, RestaurantTable])],
+  imports: [TypeOrmModule.forFeature([Restaurant, Category, Dish, DishIngredient, RestaurantTable]), UploadsModule],
   controllers: [PublicMenuController],
-  providers: [PublicMenuService],
+  // The subscriber is listed as a provider so Nest constructs it - that is what
+  // registers it against the datasource. Nothing injects it.
+  providers: [PublicMenuService, PublicMenuCache, MenuCacheSubscriber],
+  exports: [PublicMenuCache],
 })
 export class PublicMenuModule {}

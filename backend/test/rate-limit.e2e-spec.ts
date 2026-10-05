@@ -114,4 +114,107 @@ describe('Rate limiting (e2e)', () => {
       expect(statuses).toEqual([401, 401, 429]);
     });
   });
+
+  /**
+   * The start of service: a restaurant's worth of diners scan the QR code at once.
+   *
+   * Every one of them is behind the restaurant's wifi, so the API sees one address
+   * making every request. That is the case this guards - under the general limit of
+   * 120 a minute, the 121st diner got a 429 and a broken page.
+   */
+  describe('a whole restaurant scanning at once', () => {
+    let rushCtx: TestContext;
+    let rushApp: INestApplication;
+    let rushSlug: string;
+
+    beforeAll(async () => {
+      rushCtx = await createTestApp({ throttle: true });
+      rushApp = rushCtx.app;
+
+      const owner = await registerOwner(rushApp, { restaurantName: 'Rush Hour Kitchen' });
+      const headers = auth(owner.accessToken);
+
+      const profile = await api(rushApp).get('/restaurants/me').set(headers).expect(200);
+      rushSlug = profile.body.slug;
+
+      await api(rushApp)
+        .post('/dishes')
+        .set(headers)
+        .send({ name: 'Rush Thali', price: 220 })
+        .expect(201);
+    });
+
+    afterAll(async () => {
+      await rushCtx.close();
+    });
+
+    it('serves 200 simultaneous scans from one address without a single failure', async () => {
+      const responses = await Promise.all(
+        Array.from({ length: 200 }, () =>
+          api(rushApp).get(`/public/restaurants/${rushSlug}/menu`),
+        ),
+      );
+
+      const statuses = responses.map((response) => response.status);
+
+      // Not "mostly 200". A 429 here is a diner who scanned the code and was shown
+      // an error, and there is no acceptable number of those.
+      expect(statuses.filter((status) => status !== 200)).toEqual([]);
+      // Every one of them got the real menu, not an empty shell.
+      expect(responses[199].body.restaurant.slug).toBe(rushSlug);
+      expect(responses[199].body.categories.length + responses[199].body.uncategorisedDishes.length)
+        .toBeGreaterThan(0);
+    });
+
+    it('still shows a dish going out of stock on the very next scan, mid-rush', async () => {
+      // The cache behind the burst above must not outlive a menu change. This is
+      // the same guarantee as the single-request case, checked after a rush has
+      // definitely populated the cache.
+      const owner = await registerOwner(rushApp, { restaurantName: 'Mid Rush Kitchen' });
+      const headers = auth(owner.accessToken);
+
+      const profile = await api(rushApp).get('/restaurants/me').set(headers).expect(200);
+      const slug = profile.body.slug;
+
+      const dish = await api(rushApp)
+        .post('/dishes')
+        .set(headers)
+        .send({ name: 'Last One Left', price: 180 })
+        .expect(201);
+
+      await Promise.all(
+        Array.from({ length: 40 }, () =>
+          api(rushApp).get(`/public/restaurants/${slug}/menu`).expect(200),
+        ),
+      );
+
+      const named = (body: { uncategorisedDishes: Array<{ name: string }> }) =>
+        body.uncategorisedDishes.map((entry) => entry.name);
+
+      expect(named((await api(rushApp).get(`/public/restaurants/${slug}/menu`).expect(200)).body))
+        .toContain('Last One Left');
+
+      await api(rushApp)
+        .patch(`/dishes/${dish.body.id}`)
+        .set(headers)
+        .send({ isAvailable: false })
+        .expect(200);
+
+      expect(named((await api(rushApp).get(`/public/restaurants/${slug}/menu`).expect(200)).body))
+        .not.toContain('Last One Left');
+    });
+
+    it('gives every diner in a rush the same menu', async () => {
+      // Single-flight means most of these share one build. They must all come back
+      // with the whole menu - a shared promise that resolved to a partial result
+      // would hand the same wrong answer to everybody at once.
+      const bodies = await Promise.all(
+        Array.from({ length: 50 }, async () =>
+          JSON.stringify((await api(rushApp).get(`/public/restaurants/${rushSlug}/menu`).expect(200)).body),
+        ),
+      );
+
+      expect(new Set(bodies).size).toBe(1);
+    });
+  });
 });

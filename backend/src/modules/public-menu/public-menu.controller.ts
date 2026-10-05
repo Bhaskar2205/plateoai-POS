@@ -8,6 +8,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Public } from 'src/common/decorators/public.decorator';
+import { PublicMenuThrottle } from 'src/common/throttling';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { PublicMenuDto } from './dto/public-menu.dto';
 import { PublicMenuService } from './public-menu.service';
@@ -22,6 +23,7 @@ export class PublicMenuController {
   constructor(private readonly publicMenuService: PublicMenuService) {}
 
   @Public()
+  @PublicMenuThrottle()
   @Get(':slug/menu')
   // No caching: a dish the kitchen marks unavailable must disappear from the
   // public menu on the next request, not after a cache lifetime.

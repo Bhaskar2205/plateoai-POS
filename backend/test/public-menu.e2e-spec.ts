@@ -20,7 +20,8 @@ const ALLOWED_KEYS = new Set([
   // PublicCategoryDto
   'id', 'dishes',
   // PublicDishDto
-  'price', 'imageUrl', 'preparationTimeMinutes', 'dietType', 'nutrition', 'ingredients', 'allergens',
+  'price', 'imageUrl', 'thumbnailUrl', 'preparationTimeMinutes', 'dietType', 'nutrition',
+  'ingredients', 'allergens',
   // PublicNutritionDto
   'calories', 'proteinGrams', 'carbsGrams', 'fatGrams', 'source',
   // PublicIngredientDto
@@ -193,6 +194,9 @@ describe('Public menu (e2e)', () => {
       description: 'Spinach, paneer and cashew cream',
       price: 299.5,
       imageUrl: 'https://cdn.example.com/palak.jpg',
+      // Equal to imageUrl here: this photo is not on a store that can resize,
+      // and the field is always present so a client never has to choose.
+      thumbnailUrl: 'https://cdn.example.com/palak.jpg',
       preparationTimeMinutes: 15,
       dietType: 'VEG',
       nutrition: {

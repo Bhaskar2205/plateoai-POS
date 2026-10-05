@@ -1,5 +1,4 @@
 import { INestApplication } from '@nestjs/common';
-import { GENERAL_THROTTLE } from 'src/common/throttling';
 import {
   FORWARDED_CLIENT_IP_HEADER,
   INTERNAL_PROXY_SECRET_HEADER,
@@ -69,10 +68,22 @@ describe('Rate limiting behind proxies (e2e)', () => {
   });
 
   describe('public menu fetched by the frontend server (INTERNAL_PROXY_SECRET)', () => {
-    const limit = GENERAL_THROTTLE.limit;
+    /**
+     * The menu carries its own, much higher budget - a restaurant's diners share
+     * one NAT address, so the general limit cut off the 121st person to scan. What
+     * these tests are about is *which bucket* a request counts against, not how
+     * big the bucket is, so the limit is turned down to keep them quick. Setting it
+     * here also proves the environment variable is actually read.
+     */
+    const limit = 5;
+    const env = {
+      TRUST_PROXY: undefined,
+      INTERNAL_PROXY_SECRET: SECRET,
+      PUBLIC_MENU_THROTTLE_LIMIT: String(limit),
+    };
 
     it('rate-limits each diner separately when the frontend forwards their IP with the secret', async () => {
-      await withApp({ TRUST_PROXY: undefined, INTERNAL_PROXY_SECRET: SECRET }, async (app) => {
+      await withApp(env, async (app) => {
         await registerOwner(app, { restaurantName: 'Busy Proxy Diner' });
         const menu = '/public/restaurants/busy-proxy-diner/menu';
         const asDiner = (ip: string, secret = SECRET) =>
@@ -89,7 +100,7 @@ describe('Rate limiting behind proxies (e2e)', () => {
     });
 
     it('ignores forwarded IPs without the correct secret, so clients cannot pick their own bucket', async () => {
-      await withApp({ TRUST_PROXY: undefined, INTERNAL_PROXY_SECRET: SECRET }, async (app) => {
+      await withApp(env, async (app) => {
         await registerOwner(app, { restaurantName: 'Spoof Proof Diner' });
         const menu = '/public/restaurants/spoof-proof-diner/menu';
 

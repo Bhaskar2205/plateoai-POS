@@ -111,16 +111,25 @@ export function DishImage({
   failed,
   onFailed,
   priority = false,
+  size = 'full',
 }: {
   dish: PublicDish;
   className?: string;
   failed: boolean;
   onFailed: () => void;
   priority?: boolean;
+  /**
+   * `grid` asks for the smaller variant. Sixty-four cards at full size is several
+   * megabytes to scroll a menu; at grid size it is a few hundred kilobytes.
+   */
+  size?: 'grid' | 'full';
 }) {
+  // Falls back to the full image, so a menu served before the API returned this
+  // field still shows a photo rather than a blank frame.
+  const src = size === 'grid' ? (dish.thumbnailUrl ?? dish.imageUrl) : dish.imageUrl;
   const shell = 'relative overflow-hidden bg-ground';
 
-  if (!dish.imageUrl || failed) {
+  if (!src || failed) {
     return (
       <div aria-hidden className={cn(shell, 'grid place-items-center', className)}>
         <div className="absolute inset-0 bg-gradient-to-br from-brand-50 via-ground to-saffron-50" />
@@ -137,7 +146,7 @@ export function DishImage({
       {/* Restaurant-supplied URL on an arbitrary host; next/image would need every host allow-listed. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={dish.imageUrl}
+        src={src}
         alt={`${dish.name}, as served`}
         loading={priority ? 'eager' : 'lazy'}
         onError={onFailed}

@@ -34,6 +34,9 @@ import { mysqlUtcConnectionOptions } from './mysql-utc';
           synchronize: database.synchronize,
           logging: database.logging,
           charset: 'utf8mb4',
+          // The driver default of 10 queues a burst of QR scans behind each
+          // other, since one menu read is several queries.
+          poolSize: database.poolSize,
           // UTC on the wire *and* in the MySQL session - see mysql-utc.ts.
           ...mysqlUtcConnectionOptions,
           // TLS for managed MySQL - see mysql-ssl.ts.

@@ -3,6 +3,7 @@
 import {
   Armchair,
   ChevronRight,
+  Clock,
   Leaf,
   MapPin,
   QrCode,
@@ -23,7 +24,6 @@ import {
   DishDetailsSheet,
   DishImage,
   IngredientGlyphs,
-  PrepTime,
 } from './dish-details';
 
 interface Section {
@@ -218,7 +218,7 @@ export function PublicMenuView({
             </div>
           </div>
 
-          <main className="mx-auto max-w-3xl px-4 pt-4 pb-10 sm:px-6">
+          <main className="mx-auto max-w-5xl px-4 pt-4 pb-10 sm:px-6">
             {/* Without a table there are no Add buttons. Say why, rather than
                 leaving a diner to decide the menu is broken. */}
             {!canOrder && <HowToOrder restaurantName={menu.restaurant.name} />}
@@ -290,7 +290,7 @@ export function PublicMenuView({
                       </span>
                     </div>
 
-                    <ul className="grid gap-3 sm:grid-cols-2">
+                    <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                       {section.dishes.map((dish) => (
                         <li key={dish.id}>
                           <DishCard dish={dish} money={money} onOpen={() => setOpenDish(dish)} />
@@ -478,10 +478,19 @@ function RestaurantHeader({
 /**
  * One dish, as a diner scans it.
  *
- * The photo and the name are one big tap target that opens the details, so a
- * diner who wants to know what is in something does not have to find a small
- * link. The Add button stays a separate target, because ordering by accident
- * while reading is worse than one extra tap.
+ * The photograph leads, at a size worth looking at. A menu is a shop window, and
+ * a 110px thumbnail beside a paragraph of text sells nothing - a diner choosing
+ * between two curries is choosing with their eyes first.
+ *
+ * Every card is the same shape whether or not there is a photo. Most restaurants
+ * photograph their menu gradually, and a grid where some cards are tall and some
+ * are short reads as broken rather than as varied, so the placeholder fills the
+ * same frame and carries the dish's own initial.
+ *
+ * The photo and the name are one big tap target that opens the details, so a diner
+ * who wants to know what is in something does not have to find a small link. Add
+ * stays a separate target: ordering by accident while reading is worse than one
+ * extra tap.
  */
 function DishCard({
   dish,
@@ -493,6 +502,7 @@ function DishCard({
   onOpen: () => void;
 }) {
   const [imageFailed, setImageFailed] = useState(false);
+  const hasPhoto = Boolean(dish.imageUrl) && !imageFailed;
 
   const detailCount =
     dish.ingredients.length + (dish.nutrition ? 1 : 0) + (dish.description ? 1 : 0);
@@ -506,33 +516,65 @@ function DishCard({
         type="button"
         onClick={onOpen}
         aria-label={`See what is in ${dish.name}`}
-        className="flex flex-1 gap-3.5 p-3.5 text-left focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+        className="flex flex-1 flex-col text-left focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
       >
-        <div className="relative shrink-0">
+        <div className="relative">
           <DishImage
             dish={dish}
+            size="grid"
             failed={imageFailed}
             onFailed={() => setImageFailed(true)}
-            className="size-28 rounded-xl border border-line sm:size-32"
+            // 4:3 rather than square: food photographs are nearly always
+            // landscape, and a square crop cuts the plate.
+            className={cn(
+              'aspect-[4/3] w-full',
+              hasPhoto && 'transition-transform duration-300 group-hover:scale-[1.02]',
+            )}
           />
-          {/* The price sits on the photo, so the two things a diner compares are
-              never separated by a line of text. Bottom left, because the image's
-              own fallback mark occupies the opposite corner. */}
-          <span className="absolute bottom-1 left-1 rounded-lg bg-ink/85 px-2 py-0.5 text-xs font-bold text-white tabular-nums shadow-sm backdrop-blur-sm">
+
+          {/* A wash at the foot of the photo, so white text stays readable over a
+              bright dish without dimming the food itself. Only over a real
+              photograph: on the placeholder it reads as a dark band across an
+              otherwise pale card, and it covers the fallback initial. */}
+          {hasPhoto && (
+            <div
+              aria-hidden
+              className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-ink/70 via-ink/25 to-transparent"
+            />
+          )}
+
+          <span
+            className={cn(
+              'absolute bottom-2.5 left-3 text-base font-bold tabular-nums',
+              hasPhoto ? 'text-white drop-shadow-sm' : 'text-ink',
+            )}
+          >
             {money(dish.price)}
           </span>
+
+          <div className="absolute top-2.5 left-3">
+            <DietMark
+              diet={dish.dietType}
+              className="shadow-sm ring-2 ring-white/70"
+            />
+          </div>
+
+          {dish.preparationTimeMinutes !== null && (
+            <span className="absolute top-2.5 right-3 inline-flex items-center gap-1 rounded-full bg-surface/90 px-2 py-0.5 text-[11px] font-medium text-ink shadow-sm backdrop-blur-sm">
+              <Clock className="size-3" aria-hidden />
+              <span className="sr-only">Usually ready in </span>
+              {dish.preparationTimeMinutes} min
+            </span>
+          )}
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-start gap-2">
-            <DietMark diet={dish.dietType} className="mt-[3px]" />
-            <h3
-              id={`dish-${dish.id}`}
-              className="min-w-0 text-base leading-snug font-semibold text-ink"
-            >
-              {dish.name}
-            </h3>
-          </div>
+        <div className="flex min-w-0 flex-1 flex-col px-3.5 pt-3">
+          <h3
+            id={`dish-${dish.id}`}
+            className="min-w-0 text-[15px] leading-snug font-semibold text-ink text-balance"
+          >
+            {dish.name}
+          </h3>
 
           {dish.description && (
             <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">
@@ -540,18 +582,15 @@ function DishCard({
             </p>
           )}
 
-          <div className="mt-auto space-y-1.5 pt-2">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {dish.preparationTimeMinutes !== null && <PrepTime minutes={dish.preparationTimeMinutes} />}
-              <CalorieChip dish={dish} />
-            </div>
+          <div className="mt-auto space-y-1.5 pt-2.5">
+            <CalorieChip dish={dish} />
             {/* A hint of what is in it, before the diner even taps. */}
             <IngredientGlyphs dish={dish} />
           </div>
         </div>
       </button>
 
-      <div className="space-y-2.5 px-3.5 pb-3.5">
+      <div className="space-y-2.5 px-3.5 pt-2.5 pb-3.5">
         <AllergenNotice allergens={dish.allergens} />
 
         <div className="flex items-center justify-between gap-3">

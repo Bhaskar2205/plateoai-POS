@@ -7,6 +7,8 @@ import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
 import { resolveActiveRestaurant, resolveActiveTable } from './public-lookup';
+import { UploadsService } from 'src/modules/uploads/uploads.service';
+import { PublicMenuCache } from './public-menu.cache';
 import {
   PublicDishDto,
   PublicIngredientDto,
@@ -43,10 +45,62 @@ export class PublicMenuService {
     private readonly dishIngredientsRepository: Repository<DishIngredient>,
     @InjectRepository(RestaurantTable)
     private readonly tablesRepository: Repository<RestaurantTable>,
+    private readonly cache: PublicMenuCache,
+    private readonly uploadsService: UploadsService,
   ) {}
+
+  /**
+   * Menu builds currently running, by cache key.
+   *
+   * Not a cache - entries live only as long as the query they stand for. It exists
+   * so simultaneous scans of the same menu wait on one read instead of each making
+   * their own.
+   */
+  private readonly inFlight = new Map<string, Promise<PublicMenuDto>>();
 
   /** `table` is the raw `?table=` value: absent, a string, or whatever a client sent. */
   async getMenu(slug: string, table?: unknown): Promise<PublicMenuDto> {
+    // Served from the cache when a scan in the last few seconds asked for the same
+    // menu, which during a rush is nearly all of them. Any edit to the menu throws
+    // the cache away (see MenuCacheSubscriber), so this never serves a dish the
+    // kitchen has just marked sold out.
+    const key = PublicMenuCache.keyFor(slug, table);
+    const cached = this.cache.get(key);
+
+    if (cached) return cached;
+
+    // A hundred and fifty people scanning in the same second all miss an empty
+    // cache, so without this they would all run the same queries and the cache
+    // would have saved nothing - measured, and it was in fact slightly slower than
+    // no cache at all. Sharing the in-flight promise turns the whole rush into one
+    // database read, which is the entire point.
+    const inFlight = this.inFlight.get(key);
+
+    if (inFlight) return inFlight;
+
+    const build = this.buildMenu(slug, table)
+      .then((menu) => {
+        this.cache.set(key, menu);
+
+        return menu;
+      })
+      // Cleared whether it resolved or threw. Leaving a rejected promise here
+      // would make one failed lookup permanent for this slug.
+      .finally(() => this.inFlight.delete(key));
+
+    this.inFlight.set(key, build);
+
+    return build;
+  }
+
+  /**
+   * Reads the menu from the database.
+   *
+   * A 404 - unknown restaurant, unknown table - throws out of here and is never
+   * cached: a restaurant that has just been created should work on its first scan,
+   * and the throttle already bounds slug guessing.
+   */
+  private async buildMenu(slug: string, table?: unknown): Promise<PublicMenuDto> {
     const restaurant = await resolveActiveRestaurant(this.restaurantsRepository, slug);
     const publicTable =
       table === undefined
@@ -78,7 +132,10 @@ export class PublicMenuService {
       visibleDishes.map((dish) => dish.id),
     );
 
-    const toPublic = (dish: Dish) => PublicMenuService.toPublicDish(dish, recipes.get(dish.id) ?? []);
+    const toPublic = (dish: Dish) =>
+      PublicMenuService.toPublicDish(dish, recipes.get(dish.id) ?? [], (url) =>
+        this.uploadsService.thumbnailFor(url),
+      );
 
     return {
       restaurant: {
@@ -134,7 +191,11 @@ export class PublicMenuService {
     return recipes;
   }
 
-  private static toPublicDish(dish: Dish, ingredients: PublicIngredientDto[]): PublicDishDto {
+  private static toPublicDish(
+    dish: Dish,
+    ingredients: PublicIngredientDto[],
+    thumbnailFor: (url: string) => string,
+  ): PublicDishDto {
     const allergens = [
       ...new Set(
         ingredients
@@ -149,6 +210,7 @@ export class PublicMenuService {
       description: dish.description,
       price: dish.price,
       imageUrl: dish.imageUrl,
+      thumbnailUrl: dish.imageUrl ? thumbnailFor(dish.imageUrl) : null,
       preparationTimeMinutes: dish.preparationTimeMinutes,
       dietType: dish.dietType,
       nutrition: PublicMenuService.toNutrition(dish),
