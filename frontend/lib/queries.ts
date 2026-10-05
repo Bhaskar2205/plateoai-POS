@@ -9,19 +9,34 @@ import {
 import { apiFetch } from './api';
 import type {
   AdjustmentsReport,
+  AuditAction,
+  AuditEntity,
+  AuditLogPage,
   Bill,
   Category,
+  DayEndReport,
   DiscountType,
   Dish,
   DishIngredient,
   Ingredient,
+  IngredientCategory,
+  IngredientUnit,
+  InventoryMode,
+  InventoryMovement,
+  InventoryReport,
+  InventorySettings,
+  StockAdjustmentReason,
+  StockCountLine,
+  ItemSales,
   KitchenTicket,
   KotPrint,
   KotStatus,
-  ItemSales,
   Order,
   OrderRow,
+  PaymentIntent,
   PaymentMethod,
+  PaymentSettings,
+  ReconciliationException,
   Restaurant,
   RestaurantMember,
   RestaurantStats,
@@ -31,6 +46,9 @@ import type {
   StaffSales,
   TableOrderSummary,
   TableSales,
+  TaxComponent,
+  TaxGroup,
+  TaxProfile,
 } from './types';
 
 /**
@@ -62,7 +80,18 @@ export const queryKeys = {
     staff: ['reports', 'staff'] as const,
     tables: ['reports', 'tables'] as const,
     adjustments: ['reports', 'adjustments'] as const,
+    dayEnd: ['reports', 'day-end'] as const,
   },
+  taxes: ['taxes'] as const,
+  auditLogs: ['audit-logs'] as const,
+  payments: ['payments'] as const,
+  // One root so a stock change can invalidate the shelf, the ledger and the
+  // report in a single call.
+  inventory: ['inventory'] as const,
+  inventorySettings: ['inventory', 'settings'] as const,
+  inventoryStock: ['inventory', 'stock'] as const,
+  inventoryMovements: ['inventory', 'movements'] as const,
+  inventoryReport: ['inventory', 'report'] as const,
 };
 
 // --- Restaurant --------------------------------------------------------------
@@ -167,6 +196,8 @@ export interface DishPayload {
   description: string | null;
   imageUrl: string | null;
   dietType: string | null;
+  /** Which tax components apply. Defaults to ordinary food and drink. */
+  taxGroup: TaxGroup;
   proteinGrams: number | null;
   calories: number | null;
   carbsGrams: number | null;
@@ -285,6 +316,14 @@ export interface IngredientPayload {
   name: string;
   description?: string;
   allergenInfo?: string;
+  category?: IngredientCategory;
+  unit?: IngredientUnit;
+  /** Whole paise. The form takes rupees and converts at the edge. */
+  costPerUnitPaise?: number;
+  minimumQuantity?: number;
+  reorderQuantity?: number;
+  /** Create only. An ingredient opens once, and editing never moves a figure. */
+  openingQuantity?: number;
 }
 
 export const useSaveIngredient = (options?: UseMutationOptions<Ingredient, Error, {
@@ -607,14 +646,35 @@ export const useRemoveDiscount = (options?: UseMutationOptions<Order, Error, num
     options,
   );
 
-export const useSettleOrder = (
-  options?: UseMutationOptions<Order, Error, { orderId: number; paymentMethod: PaymentMethod }>,
+/**
+ * Records income tax a corporate payer withholds from this bill.
+ *
+ * Sending null clears it. This never changes the tax owed - it only moves money
+ * between what is billed and what is collected.
+ */
+export const useSetTds = (
+  options?: UseMutationOptions<Order, Error, { orderId: number; rate: number | null }>,
 ) =>
   useOrderMutation(
-    ({ orderId, paymentMethod }) =>
+    ({ orderId, rate }) =>
+      apiFetch<Order>(`/restaurants/me/orders/${orderId}/tds`, { method: 'POST', body: { rate } }),
+    ({ orderId }) => orderId,
+    options,
+  );
+
+export const useSettleOrder = (
+  options?: UseMutationOptions<
+    Order,
+    Error,
+    { orderId: number; paymentMethod: PaymentMethod; idempotencyKey?: string }
+  >,
+) =>
+  useOrderMutation(
+    ({ orderId, paymentMethod, idempotencyKey }) =>
       apiFetch<Order>(`/restaurants/me/orders/${orderId}/settle`, {
         method: 'POST',
         body: { paymentMethod },
+        idempotencyKey,
       }),
     ({ orderId }) => orderId,
     options,
@@ -739,3 +799,351 @@ export const useTablesReport = (range: ReportRange, enabled = true) =>
 
 export const useAdjustmentsReport = (range: ReportRange, enabled = true) =>
   useQuery(reportQuery<AdjustmentsReport>(queryKeys.reports.adjustments, 'adjustments', range, enabled));
+
+export const useDayEndReport = (range: ReportRange, enabled = true) =>
+  useQuery(reportQuery<DayEndReport>(queryKeys.reports.dayEnd, 'day-end', range, enabled));
+
+// --- Taxes -------------------------------------------------------------------
+
+/**
+ * The restaurant's tax profile.
+ *
+ * A change here changes every bill still open, so anything that mutates it
+ * invalidates the orders and floor caches too - otherwise a till would keep
+ * showing the old total until someone refreshed.
+ */
+export const useTaxProfile = (enabled = true) =>
+  useQuery({
+    queryKey: queryKeys.taxes,
+    queryFn: () => apiFetch<TaxProfile>('/restaurants/me/taxes'),
+    enabled,
+  });
+
+const useTaxMutation = <TData, TVariables>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
+  options?: UseMutationOptions<TData, Error, TVariables>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation<TData, Error, TVariables>({
+    mutationFn,
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.taxes });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orders });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.tableOrders });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.floor });
+      options?.onSuccess?.(...args);
+    },
+  });
+};
+
+export const useCreateTaxComponent = (
+  options?: UseMutationOptions<TaxComponent, Error, Partial<TaxComponent>>,
+) =>
+  useTaxMutation(
+    (body) => apiFetch<TaxComponent>('/restaurants/me/taxes', { method: 'POST', body }),
+    options,
+  );
+
+export const useUpdateTaxComponent = (
+  options?: UseMutationOptions<TaxComponent, Error, { id: number } & Partial<TaxComponent>>,
+) =>
+  useTaxMutation(
+    ({ id, ...body }) =>
+      apiFetch<TaxComponent>(`/restaurants/me/taxes/${id}`, { method: 'PATCH', body }),
+    options,
+  );
+
+export const useDeleteTaxComponent = (options?: UseMutationOptions<void, Error, number>) =>
+  useTaxMutation(
+    (id) => apiFetch<void>(`/restaurants/me/taxes/${id}`, { method: 'DELETE' }),
+    options,
+  );
+
+export const useApplyTaxProfile = (options?: UseMutationOptions<TaxProfile, Error, string>) =>
+  useTaxMutation(
+    (profileId) =>
+      apiFetch<TaxProfile>('/restaurants/me/taxes/apply-profile', {
+        method: 'POST',
+        body: { profileId },
+      }),
+    options,
+  );
+
+// --- Audit log ---------------------------------------------------------------
+
+export interface AuditLogQuery {
+  from?: string;
+  to?: string;
+  action?: AuditAction;
+  entityType?: AuditEntity;
+  page?: number;
+  pageSize?: number;
+}
+
+/**
+ * Who changed what.
+ *
+ * Owner-only on the server, so this is simply not fetched for anyone else - the
+ * screen explains the restriction rather than showing an empty table or a 403.
+ */
+export const useAuditLogs = (query: AuditLogQuery, enabled = true) => {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params.set(key, String(value));
+  }
+
+  const search = params.toString();
+
+  return useQuery({
+    queryKey: [...queryKeys.auditLogs, search] as const,
+    queryFn: () => apiFetch<AuditLogPage>(`/restaurants/me/audit-logs${search ? `?${search}` : ''}`),
+    enabled,
+    staleTime: 15_000,
+  });
+};
+
+// --- Payments ----------------------------------------------------------------
+
+/**
+ * Payments taken and attempted.
+ *
+ * Billing roles only on the server, so this is not fetched for anyone else - the
+ * screen explains the restriction rather than showing an empty table.
+ */
+export const usePayments = (enabled = true) =>
+  useQuery({
+    queryKey: queryKeys.payments,
+    queryFn: () => apiFetch<PaymentIntent[]>('/restaurants/me/payments'),
+    enabled,
+    staleTime: 15_000,
+  });
+
+export const usePaymentSettings = (enabled = true) =>
+  useQuery({
+    queryKey: [...queryKeys.payments, 'settings'] as const,
+    queryFn: () => apiFetch<PaymentSettings>('/restaurants/me/payments/settings'),
+    enabled,
+  });
+
+export const usePaymentExceptions = (enabled = true) =>
+  useQuery({
+    queryKey: [...queryKeys.payments, 'exceptions'] as const,
+    queryFn: () => apiFetch<ReconciliationException[]>('/restaurants/me/payments/exceptions'),
+    enabled,
+    staleTime: 15_000,
+  });
+
+/** Looks for discrepancies now. Records what it finds; repairs nothing. */
+export const useReconcilePayments = (
+  options?: UseMutationOptions<{ checked: number; found: Array<{ issue: string; detail: string }> }, Error, void>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ checked: number; found: Array<{ issue: string; detail: string }> }>(
+        '/restaurants/me/payments/reconcile',
+        { method: 'POST' },
+      ),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.payments });
+      options?.onSuccess?.(...args);
+    },
+  });
+};
+
+export const useResolvePaymentException = (
+  options?: UseMutationOptions<{ resolved: true }, Error, { id: number; note: string }>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, note }) =>
+      apiFetch<{ resolved: true }>(`/restaurants/me/payments/exceptions/${id}/resolve`, {
+        method: 'POST',
+        body: { note },
+      }),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.payments });
+      options?.onSuccess?.(...args);
+    },
+  });
+};
+
+// --- Inventory ---------------------------------------------------------------
+
+/**
+ * Stock.
+ *
+ * Every mutation invalidates both the stock list and the movement history,
+ * because the two are two views of the same change and showing one updated while
+ * the other still says the old thing is worse than showing neither.
+ */
+export const useInventorySettings = (enabled = true) =>
+  useQuery({
+    queryKey: queryKeys.inventorySettings,
+    queryFn: () => apiFetch<InventorySettings>('/restaurants/me/inventory/settings'),
+    enabled,
+  });
+
+export const useSaveInventorySettings = (
+  options?: UseMutationOptions<InventorySettings, Error, Partial<InventorySettings & {
+    inventoryMode: InventoryMode;
+  }>>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body) =>
+      apiFetch<InventorySettings>('/restaurants/me/inventory/settings', {
+        method: 'PATCH',
+        body,
+      }),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory });
+      options?.onSuccess?.(...args);
+    },
+  });
+};
+
+export const useStock = (includeInactive = false) =>
+  useQuery({
+    queryKey: [...queryKeys.inventoryStock, includeInactive] as const,
+    queryFn: () =>
+      apiFetch<Ingredient[]>(
+        `/restaurants/me/inventory/stock${includeInactive ? '?includeInactive=true' : ''}`,
+      ),
+    staleTime: 15_000,
+  });
+
+export const useStockMovements = (ingredientId?: number, limit = 100) =>
+  useQuery({
+    queryKey: [...queryKeys.inventoryMovements, ingredientId ?? 'all', limit] as const,
+    queryFn: () => {
+      const params = new URLSearchParams({ limit: String(limit) });
+      if (ingredientId) params.set('ingredientId', String(ingredientId));
+
+      return apiFetch<InventoryMovement[]>(`/restaurants/me/inventory/movements?${params}`);
+    },
+    staleTime: 15_000,
+  });
+
+export const useInventoryReport = (range?: { from?: string; to?: string }) =>
+  useQuery({
+    queryKey: [...queryKeys.inventoryReport, range?.from ?? '', range?.to ?? ''] as const,
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (range?.from) params.set('from', range.from);
+      if (range?.to) params.set('to', range.to);
+      const query = params.toString();
+
+      return apiFetch<InventoryReport>(
+        `/restaurants/me/inventory/report${query ? `?${query}` : ''}`,
+      );
+    },
+  });
+
+export interface StockInPayload {
+  quantity: number;
+  costPerUnitPaise?: number;
+  note?: string;
+}
+
+export interface StockAdjustmentPayload {
+  quantity: number;
+  increase: boolean;
+  reason: StockAdjustmentReason;
+  note?: string;
+}
+
+export interface WastagePayload {
+  quantity: number;
+  reason: StockAdjustmentReason;
+  note?: string;
+}
+
+/** Shared invalidation: a stock change touches the shelf, the ledger and the report. */
+function useStockMutation<TBody>(
+  path: (ingredientId: number) => string,
+  options?: UseMutationOptions<InventoryMovement, Error, { ingredientId: number; body: TBody }>,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ ingredientId, body }) =>
+      apiFetch<InventoryMovement>(path(ingredientId), { method: 'POST', body }),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory });
+      // The menu shows what a dish costs to make, which moves with the
+      // ingredient cost a delivery can change.
+      void queryClient.invalidateQueries({ queryKey: queryKeys.ingredients });
+      options?.onSuccess?.(...args);
+    },
+  });
+}
+
+export const useAddStock = (
+  options?: UseMutationOptions<
+    InventoryMovement,
+    Error,
+    { ingredientId: number; body: StockInPayload }
+  >,
+) =>
+  useStockMutation<StockInPayload>(
+    (id) => `/restaurants/me/inventory/ingredients/${id}/stock-in`,
+    options,
+  );
+
+export const useAdjustStock = (
+  options?: UseMutationOptions<
+    InventoryMovement,
+    Error,
+    { ingredientId: number; body: StockAdjustmentPayload }
+  >,
+) =>
+  useStockMutation<StockAdjustmentPayload>(
+    (id) => `/restaurants/me/inventory/ingredients/${id}/adjust`,
+    options,
+  );
+
+export const useRecordWastage = (
+  options?: UseMutationOptions<
+    InventoryMovement,
+    Error,
+    { ingredientId: number; body: WastagePayload }
+  >,
+) =>
+  useStockMutation<WastagePayload>(
+    (id) => `/restaurants/me/inventory/ingredients/${id}/wastage`,
+    options,
+  );
+
+export const useRecordStockCount = (
+  options?: UseMutationOptions<
+    { lines: StockCountLine[]; countedAt: string },
+    Error,
+    { lines: Array<{ ingredientId: number; countedQuantity: number }>; note?: string }
+  >,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body) =>
+      apiFetch<{ lines: StockCountLine[]; countedAt: string }>(
+        '/restaurants/me/inventory/stock-count',
+        { method: 'POST', body },
+      ),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.inventory });
+      options?.onSuccess?.(...args);
+    },
+  });
+};

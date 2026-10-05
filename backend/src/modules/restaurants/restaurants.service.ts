@@ -6,7 +6,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Like, Repository } from 'typeorm';
-import { RestaurantStatus, UserRole } from 'src/common/enums';
+import {
+  AuditAction,
+  AuditEntity,
+  RestaurantStatus,
+  UserRole,
+} from 'src/common/enums';
 import { slugify, uniqueSlug } from 'src/common/utils/slug.util';
 import { Category } from 'src/modules/categories/entities/category.entity';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
@@ -15,6 +20,7 @@ import { RestaurantStatsDto } from './dto/restaurant-stats.dto';
 import { RestaurantUserDto } from './dto/restaurant-user.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { RestaurantUser } from './entities/restaurant-user.entity';
+import { AuditService, type AuditContext } from 'src/modules/audit/audit.service';
 import { Restaurant } from './entities/restaurant.entity';
 import {
   generateKitchenCode,
@@ -35,6 +41,7 @@ export class RestaurantsService {
     private readonly dishesRepository: Repository<Dish>,
     @InjectRepository(Ingredient)
     private readonly ingredientsRepository: Repository<Ingredient>,
+    private readonly auditService: AuditService,
   ) {}
 
   async findById(id: number): Promise<Restaurant> {
@@ -154,11 +161,28 @@ export class RestaurantsService {
    * that walked out of the kitchen - so the old code has to stop working at once
    * rather than when some session expires.
    */
-  async regenerateKitchenCode(restaurantId: number): Promise<string> {
+  async regenerateKitchenCode(
+    restaurantId: number,
+    userId?: number,
+    context?: AuditContext,
+  ): Promise<string> {
     const restaurant = await this.findById(restaurantId);
 
     restaurant.kitchenCode = await this.unusedKitchenCode();
     await this.restaurantsRepository.save(restaurant);
+
+    // Neither the old code nor the new one is recorded: the code is the kitchen's
+    // credential, and a log holding it would hand kitchen access to anyone who
+    // can read the log. That it changed, and when, is the auditable fact.
+    await this.auditService.record({
+      restaurantId,
+      userId: userId ?? null,
+      action: AuditAction.KITCHEN_CODE_REGENERATED,
+      entityType: AuditEntity.RESTAURANT,
+      entityId: restaurantId,
+      reason: 'Previous kitchen screens signed out',
+      context,
+    });
 
     return restaurant.kitchenCode;
   }

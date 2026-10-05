@@ -21,6 +21,12 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
+import {
+  IdempotencyKeyHeader,
+  RequestContext,
+} from 'src/common/decorators/request-context.decorator';
+import type { AuditContext } from 'src/modules/audit/audit.service';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
@@ -51,8 +57,10 @@ export class TablesController {
   create(
     @ActiveRestaurantId() restaurantId: number,
     @Body() dto: CreateTableDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
   ): Promise<RestaurantTableDto> {
-    return this.tablesService.create(restaurantId, dto);
+    return this.tablesService.create(restaurantId, dto, userId, context);
   }
 
   @Get()
@@ -80,8 +88,10 @@ export class TablesController {
     @ActiveRestaurantId() restaurantId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateTableDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
   ): Promise<RestaurantTableDto> {
-    return this.tablesService.update(restaurantId, id, dto);
+    return this.tablesService.update(restaurantId, id, dto, userId, context);
   }
 
   @Delete(':id')
@@ -105,7 +115,10 @@ export class TablesController {
   regenerateQr(
     @ActiveRestaurantId() restaurantId: number,
     @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+    @IdempotencyKeyHeader() idempotencyKey: string | undefined,
   ): Promise<RestaurantTableDto> {
-    return this.tablesService.regenerateQr(restaurantId, id);
+    return this.tablesService.regenerateQr(restaurantId, id, userId, context, idempotencyKey);
   }
 }

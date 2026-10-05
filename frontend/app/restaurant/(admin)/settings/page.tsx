@@ -10,6 +10,7 @@ import { Card, CardBody, CardHeader } from '@/components/ui/card';
 import { useToast } from '@/components/ui/toast';
 import { canManageTables } from '@/lib/permissions';
 import { KitchenCodeCard } from '@/components/dashboard/kitchen-code-card';
+import { InventorySettingsCard } from '@/components/inventory/inventory-settings-card';
 import { ROLE_LABELS } from '@/components/dashboard/sidebar';
 import { PageHeader } from '@/components/page-header';
 
@@ -46,6 +47,10 @@ export default function SettingsPage() {
       <div className="space-y-6">
         {/* Only owners may read the kitchen code, so only they are shown the card. */}
         {canManageTables(session.user.role) && <KitchenCodeCard />}
+
+        {/* Stock tracking changes what settling a bill does, so it is owner-only
+            like the kitchen code above it. */}
+        {canManageTables(session.user.role) && <InventorySettingsCard />}
 
         <Card>
           <CardHeader title="Account" description="The person signed in to this dashboard." />

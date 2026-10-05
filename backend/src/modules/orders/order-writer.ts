@@ -1,11 +1,13 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { EntityManager, In, QueryFailedError } from 'typeorm';
-import { OrderItemStatus, OrderStatus } from 'src/common/enums';
+import { OrderItemStatus, OrderStatus, TaxGroup } from 'src/common/enums';
 import { businessDateFor } from 'src/common/utils/business-date.util';
-import { computeBillTotals, lineTotal } from 'src/common/utils/money.util';
+import { lineTotal } from 'src/common/utils/money.util';
+import { computeBill, effectiveTaxRate, type TaxComponentInput } from 'src/common/utils/tax.util';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { OrderItemInputDto } from './dto/order-input.dto';
 import { KotTicket } from './entities/kot-ticket.entity';
+import { OrderCharge } from './entities/order-charge.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { Order } from './entities/order.entity';
 import { isBillable } from './order-mapper';
@@ -95,7 +97,7 @@ export async function buildOrderItems(
 
   const dishes = await manager.getRepository(Dish).find({
     where: { id: In(dishIds), restaurantId },
-    select: { id: true, name: true, price: true, isAvailable: true },
+    select: { id: true, name: true, price: true, isAvailable: true, taxGroup: true },
   });
 
   const byId = new Map(dishes.map((dish) => [dish.id, dish]));
@@ -126,6 +128,9 @@ export async function buildOrderItems(
       dishId: dish.id,
       name: dish.name,
       unitPrice: dish.price,
+      // Snapshotted with the price: reclassifying a dish later must not change
+      // the tax on a bill that is already running.
+      taxGroup: dish.taxGroup ?? TaxGroup.STANDARD,
       quantity: input.quantity,
       lineTotal: lineTotal({ unitPrice: dish.price, quantity: input.quantity }),
       note: input.note || null,
@@ -141,16 +146,23 @@ export async function buildOrderItems(
  * Recomputes an open bill from its own lines.
  *
  * Called after every change to an order's items or discount, so the stored
- * totals are never stale. `taxRate` is refreshed from the restaurant while the
- * bill is open and frozen at settlement, which is why it is passed in rather
- * than read here.
+ * totals are never stale. The tax components are refreshed from the restaurant
+ * while the bill is open and frozen at settlement, which is why they are passed
+ * in rather than read here.
+ *
+ * The breakdown is rewritten wholesale on every recalculation: the charges are
+ * derived from the lines, so editing them in place would mean reconciling two
+ * representations of the same arithmetic. `tax_rate` and `tax_amount` are still
+ * written, as the single-line summary older screens read, but the `order_charges`
+ * rows are what a bill prints.
  */
 export async function recalculateOrder(
   manager: EntityManager,
   orderId: number,
-  taxRate: number,
+  components: TaxComponentInput[],
 ): Promise<Order> {
   const repository = manager.getRepository(Order);
+  const charges = manager.getRepository(OrderCharge);
 
   const order = await repository.findOneOrFail({
     where: { id: orderId },
@@ -159,19 +171,46 @@ export async function recalculateOrder(
 
   const billable = order.items.filter(isBillable);
 
-  const totals = computeBillTotals(
-    billable.map((item) => ({ unitPrice: item.unitPrice, quantity: item.quantity })),
+  const bill = computeBill(
+    billable.map((item) => ({
+      unitPrice: item.unitPrice,
+      quantity: item.quantity,
+      taxGroup: item.taxGroup ?? TaxGroup.STANDARD,
+    })),
     { type: order.discountType, value: order.discountValue },
-    taxRate,
+    components,
+    order.tdsRate,
   );
 
-  order.taxRate = taxRate;
-  order.subtotal = totals.subtotal;
-  order.discountAmount = totals.discountAmount;
-  order.taxAmount = totals.taxAmount;
-  order.total = totals.total;
+  order.subtotal = bill.subtotal;
+  order.discountAmount = bill.discountAmount;
+  order.serviceChargeAmount = bill.serviceChargeAmount;
+  order.taxAmount = bill.taxAmount;
+  order.taxRate = effectiveTaxRate(bill);
+  order.total = bill.total;
+  order.tdsAmount = bill.tdsAmount;
+  order.amountPayable = bill.amountPayable;
 
-  return repository.save(order);
+  const saved = await repository.save(order);
+
+  await charges.delete({ orderId });
+  if (bill.charges.length > 0) {
+    await charges.insert(
+      bill.charges.map((charge, index) =>
+        charges.create({
+          orderId,
+          name: charge.name,
+          kind: charge.kind,
+          rate: charge.rate,
+          taxableAmount: charge.taxableAmount,
+          amount: charge.amount,
+          sortOrder: index + 1,
+        }),
+      ),
+    );
+  }
+
+  return saved;
 }
 
 /** Opens a bill. The caller supplies the number it claimed, inside its own transaction. */

@@ -1,13 +1,21 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
-import { OrderItemStatus, OrderSource, OrderStatus } from 'src/common/enums';
+import {
+  IdempotencyScope,
+  OrderItemStatus,
+  OrderSource,
+  OrderStatus,
+} from 'src/common/enums';
 import { businessDateFor } from 'src/common/utils/business-date.util';
 import {
   resolveActiveRestaurant,
   resolveActiveTable,
 } from 'src/modules/public-menu/public-lookup';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
+import { IdempotencyService } from 'src/modules/idempotency/idempotency.service';
+import { TaxComponent } from 'src/modules/taxes/entities/tax-component.entity';
+import { loadTaxComponents } from 'src/modules/taxes/tax-profile';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
 import { DinerOrderReceiptDto } from './dto/diner-order.dto';
 import { PlaceDinerOrderDto } from './dto/order-input.dto';
@@ -50,6 +58,9 @@ export class DinerOrdersService {
     @InjectRepository(Restaurant) private readonly restaurantsRepository: Repository<Restaurant>,
     @InjectRepository(RestaurantTable)
     private readonly tablesRepository: Repository<RestaurantTable>,
+    private readonly idempotencyService: IdempotencyService,
+    @InjectRepository(TaxComponent)
+    private readonly taxComponentsRepository: Repository<TaxComponent>,
   ) {}
 
   /**
@@ -63,17 +74,51 @@ export class DinerOrdersService {
     slug: string,
     table: unknown,
     dto: PlaceDinerOrderDto,
+    idempotencyKey?: string,
   ): Promise<DinerOrderReceiptDto> {
     const restaurant = await resolveActiveRestaurant(this.restaurantsRepository, slug);
     const seatedAt = await resolveActiveTable(this.tablesRepository, restaurant.id, table);
 
+    // The key is claimed only once the restaurant is known, so one diner's key
+    // can never collide with another restaurant's.
+    const outcome = await this.idempotencyService.run(
+      {
+        scope: IdempotencyScope.DINER_ORDER,
+        key: idempotencyKey,
+        restaurantId: restaurant.id,
+        payload: { tableId: seatedAt.id, items: dto.items },
+      },
+      () => this.placeOrderOnce(restaurant, seatedAt, dto),
+    );
+
+    return outcome.result;
+  }
+
+  /**
+   * The order itself, once the key has been claimed.
+   *
+   * Split out so the idempotency wrapper has something to call exactly once. A
+   * double-tapped Place order sends the same key twice: the first submission
+   * runs this, the second is handed the first one's receipt without the kitchen
+   * ever seeing a second set of lines.
+   */
+  private async placeOrderOnce(
+    restaurant: Restaurant,
+    seatedAt: RestaurantTable,
+    dto: PlaceDinerOrderDto,
+  ): Promise<DinerOrderReceiptDto> {
+
     await this.assertPendingWithinLimit(restaurant.id, seatedAt.id, dto.items.length);
 
-    const taxRate = await this.taxRateFor(restaurant.id);
+    const components = await loadTaxComponents(
+      this.taxComponentsRepository,
+      this.restaurantsRepository,
+      restaurant.id,
+    );
 
     const placed = await withNumberRetry(() =>
       this.dataSource.transaction(async (manager) => {
-        const order = await this.openOrFindOrder(manager, restaurant.id, seatedAt.id, taxRate);
+        const order = await this.openOrFindOrder(manager, restaurant.id, seatedAt.id);
 
         const rows = await buildOrderItems(manager, restaurant.id, dto.items, {
           status: OrderItemStatus.PENDING,
@@ -85,7 +130,7 @@ export class DinerOrdersService {
           rows.map((row) => repository.create({ ...row, orderId: order.id })),
         );
 
-        await recalculateOrder(manager, order.id, taxRate);
+        await recalculateOrder(manager, order.id, components);
 
         return saved;
       }),
@@ -116,7 +161,6 @@ export class DinerOrdersService {
     manager: EntityManager,
     restaurantId: number,
     tableId: number,
-    taxRate: number,
   ): Promise<Order> {
     const existing = await manager.getRepository(Order).findOne({
       where: { restaurantId, tableId, status: OrderStatus.OPEN },
@@ -133,7 +177,7 @@ export class DinerOrdersService {
       source: OrderSource.DINER_QR,
       openedByUserId: null,
       notes: null,
-      taxRate,
+      taxRate: 0,
     });
   }
 
@@ -163,12 +207,4 @@ export class DinerOrdersService {
       .getCount();
   }
 
-  private async taxRateFor(restaurantId: number): Promise<number> {
-    const restaurant = await this.restaurantsRepository.findOne({
-      where: { id: restaurantId },
-      select: { id: true, taxRate: true },
-    });
-
-    return restaurant?.taxRate ?? 0;
-  }
 }

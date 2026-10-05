@@ -18,6 +18,11 @@ function productionConfig(overrides: (config: AppConfig) => void = () => undefin
     publicWebUrl: 'https://app.plateoai.in',
     swaggerEnabled: false,
     trustProxy: 1,
+    idempotency: { retentionDays: 7 },
+    payments: {
+      intentExpiryMinutes: 30,
+      razorpay: { keyId: '', keySecret: '', webhookSecret: '' },
+    },
     internalProxySecret: 'x'.repeat(48),
     database: {
       host: 'private-db.example.internal',
@@ -27,14 +32,27 @@ function productionConfig(overrides: (config: AppConfig) => void = () => undefin
       name: 'plateo',
       synchronize: false,
       logging: false,
+      poolSize: 20,
       ssl: { enabled: true, ca: CA, rejectUnauthorized: true },
     },
     jwt: { secret: 'j'.repeat(64), expiresIn: '1d' },
-    throttle: { loginTtlSeconds: 60, loginLimit: 5 },
+    throttle: {
+      loginTtlSeconds: 60,
+      loginLimit: 5,
+      publicMenuTtlSeconds: 60,
+      publicMenuLimit: 600,
+    },
     uploads: {
       directory: '/data/uploads',
       publicApiUrl: 'https://api.plateoai.in',
       maxBytes: 8 * 1024 * 1024,
+      cloudflare: {
+        accountId: '',
+        token: '',
+        accountHash: '',
+        thumbnailVariant: 'thumb',
+        fullVariant: 'full',
+      },
     },
   };
   overrides(config);

@@ -7,7 +7,10 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
+  AuditAction,
+  AuditEntity,
   DiscountType,
+  IdempotencyScope,
   KotStatus,
   MAX_DISCOUNT_PERCENT,
   OrderItemStatus,
@@ -17,6 +20,12 @@ import {
 import { businessDateFor } from 'src/common/utils/business-date.util';
 import { lineTotal, toPaise } from 'src/common/utils/money.util';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
+import type { TaxComponentInput } from 'src/common/utils/tax.util';
+import { AuditService, type AuditContext } from 'src/modules/audit/audit.service';
+import { InventoryService } from 'src/modules/inventory/inventory.service';
+import { IdempotencyService } from 'src/modules/idempotency/idempotency.service';
+import { TaxComponent } from 'src/modules/taxes/entities/tax-component.entity';
+import { loadTaxComponents } from 'src/modules/taxes/tax-profile';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
 import {
   ApplyDiscountDto,
@@ -27,7 +36,7 @@ import {
   SettleOrderDto,
   UpdateOrderItemDto,
 } from './dto/order-actions.dto';
-import { AddOrderItemsDto, CreateOrderDto } from './dto/order-input.dto';
+import { AddOrderItemsDto, CreateOrderDto, SetTdsDto } from './dto/order-input.dto';
 import { BillDto, KotPrintDto, OrderDto, TableOrderSummaryDto } from './dto/order.dto';
 import { KotTicket } from './entities/kot-ticket.entity';
 import { OrderItem } from './entities/order-item.entity';
@@ -72,17 +81,46 @@ export class OrdersService {
     @InjectRepository(KotTicket) private readonly ticketsRepository: Repository<KotTicket>,
     @InjectRepository(RestaurantTable) private readonly tablesRepository: Repository<RestaurantTable>,
     @InjectRepository(Restaurant) private readonly restaurantsRepository: Repository<Restaurant>,
+    @InjectRepository(TaxComponent)
+    private readonly taxComponentsRepository: Repository<TaxComponent>,
+    private readonly auditService: AuditService,
+    private readonly idempotencyService: IdempotencyService,
+    private readonly inventoryService: InventoryService,
   ) {}
 
   /** Opens a bill, optionally with its first lines already on it. */
-  async create(restaurantId: number, userId: number, dto: CreateOrderDto): Promise<OrderDto> {
+  async create(
+    restaurantId: number,
+    userId: number,
+    dto: CreateOrderDto,
+    idempotencyKey?: string,
+  ): Promise<OrderDto> {
+    const outcome = await this.idempotencyService.run(
+      {
+        scope: IdempotencyScope.ORDER_CREATE,
+        key: idempotencyKey,
+        restaurantId,
+        payload: dto,
+        resourceType: 'ORDER',
+      },
+      () => this.createOnce(restaurantId, userId, dto),
+    );
+
+    return outcome.result;
+  }
+
+  private async createOnce(
+    restaurantId: number,
+    userId: number,
+    dto: CreateOrderDto,
+  ): Promise<OrderDto> {
     const tableId = dto.tableId ?? null;
 
     if (tableId !== null) {
       await this.assertTableAvailable(restaurantId, tableId);
     }
 
-    const taxRate = await this.taxRateFor(restaurantId);
+    const components = await this.taxComponentsFor(restaurantId);
 
     const orderId = await withNumberRetry(() =>
       this.dataSource.transaction(async (manager) => {
@@ -95,7 +133,7 @@ export class OrdersService {
           source: OrderSource.STAFF,
           openedByUserId: userId,
           notes: dto.notes || null,
-          taxRate,
+          taxRate: 0,
         });
 
         // Staff lines are approved by the act of a staff member entering them;
@@ -105,7 +143,7 @@ export class OrdersService {
           createdByUserId: userId,
         });
 
-        await recalculateOrder(manager, order.id, taxRate);
+        await recalculateOrder(manager, order.id, components);
 
         return order.id;
       }),
@@ -138,7 +176,7 @@ export class OrdersService {
 
     const orders = await this.ordersRepository.find({
       where: scope,
-      relations: { items: true, table: true },
+      relations: { items: true, table: true, charges: true },
       order: { createdAt: 'DESC' },
     });
 
@@ -197,7 +235,7 @@ export class OrdersService {
 
     const order = await this.ordersRepository.findOne({
       where: { restaurantId, tableId, status: OrderStatus.OPEN },
-      relations: { items: true, table: true },
+      relations: { items: true, table: true, charges: true },
     });
 
     if (!order) return null;
@@ -216,7 +254,7 @@ export class OrdersService {
     const order = await this.loadOrder(restaurantId, orderId);
     this.assertOpen(order);
 
-    const taxRate = await this.taxRateFor(restaurantId);
+    const components = await this.taxComponentsFor(restaurantId);
 
     await this.dataSource.transaction(async (manager) => {
       await this.appendItems(manager, restaurantId, order.id, dto.items, {
@@ -224,7 +262,7 @@ export class OrdersService {
         createdByUserId: userId,
       });
 
-      await recalculateOrder(manager, order.id, taxRate);
+      await recalculateOrder(manager, order.id, components);
     });
 
     return this.findOne(restaurantId, orderId);
@@ -252,7 +290,7 @@ export class OrdersService {
       );
     }
 
-    const taxRate = await this.taxRateFor(restaurantId);
+    const components = await this.taxComponentsFor(restaurantId);
 
     await this.dataSource.transaction(async (manager) => {
       if (dto.quantity !== undefined) {
@@ -265,7 +303,7 @@ export class OrdersService {
       }
 
       await manager.getRepository(OrderItem).save(item);
-      await recalculateOrder(manager, order.id, taxRate);
+      await recalculateOrder(manager, order.id, components);
     });
 
     return this.findOne(restaurantId, orderId);
@@ -293,7 +331,7 @@ export class OrdersService {
       throw new BadRequestException('This line has already been cancelled.');
     }
 
-    const taxRate = await this.taxRateFor(restaurantId);
+    const components = await this.taxComponentsFor(restaurantId);
     const ticketId = item.kotTicketId;
 
     await this.dataSource.transaction(async (manager) => {
@@ -307,7 +345,7 @@ export class OrdersService {
         await this.cancelTicketIfEmpty(manager, ticketId);
       }
 
-      await recalculateOrder(manager, order.id, taxRate);
+      await recalculateOrder(manager, order.id, components);
     });
 
     return this.findOne(restaurantId, orderId);
@@ -435,6 +473,8 @@ export class OrdersService {
     restaurantId: number,
     orderId: number,
     dto: ApplyDiscountDto,
+    userId: number,
+    context?: AuditContext,
   ): Promise<OrderDto> {
     const order = await this.loadOrder(restaurantId, orderId);
     this.assertOpen(order);
@@ -457,7 +497,7 @@ export class OrdersService {
       }
     }
 
-    const taxRate = await this.taxRateFor(restaurantId);
+    const components = await this.taxComponentsFor(restaurantId);
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(Order).update(order.id, {
@@ -466,17 +506,79 @@ export class OrdersService {
         discountReason: dto.reason,
       });
 
-      await recalculateOrder(manager, order.id, taxRate);
+      await recalculateOrder(manager, order.id, components);
+
+      // In the same transaction as the money: a discount that rolls back must
+      // not leave a record saying it was given.
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.BILL_DISCOUNTED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        oldValue: {
+          discountType: order.discountType,
+          discountValue: order.discountValue,
+          total: order.total,
+        },
+        newValue: { discountType: dto.type, discountValue: dto.value },
+        reason: dto.reason,
+        context,
+      });
     });
 
     return this.findOne(restaurantId, orderId);
   }
 
-  async removeDiscount(restaurantId: number, orderId: number): Promise<OrderDto> {
+  /**
+   * Records what a corporate payer withholds from this bill.
+   *
+   * Changes nothing about the tax owed: it is applied after GST, to the value
+   * before GST, and only moves money between "billed" and "collected".
+   */
+  async setTds(
+    restaurantId: number,
+    orderId: number,
+    dto: SetTdsDto,
+    userId: number,
+    context?: AuditContext,
+  ): Promise<OrderDto> {
     const order = await this.loadOrder(restaurantId, orderId);
     this.assertOpen(order);
 
-    const taxRate = await this.taxRateFor(restaurantId);
+    const rate = dto.rate === undefined || dto.rate === null || dto.rate <= 0 ? null : dto.rate;
+    const components = await this.taxComponentsFor(restaurantId);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Order).update(order.id, { tdsRate: rate });
+
+      await recalculateOrder(manager, order.id, components);
+
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.BILL_TDS_RECORDED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        oldValue: { tdsRate: order.tdsRate },
+        newValue: { tdsRate: rate },
+        context,
+      });
+    });
+
+    return this.findOne(restaurantId, orderId);
+  }
+
+  async removeDiscount(
+    restaurantId: number,
+    orderId: number,
+    userId: number,
+    context?: AuditContext,
+  ): Promise<OrderDto> {
+    const order = await this.loadOrder(restaurantId, orderId);
+    this.assertOpen(order);
+
+    const components = await this.taxComponentsFor(restaurantId);
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(Order).update(order.id, {
@@ -485,7 +587,23 @@ export class OrdersService {
         discountReason: null,
       });
 
-      await recalculateOrder(manager, order.id, taxRate);
+      await recalculateOrder(manager, order.id, components);
+
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.BILL_DISCOUNT_REMOVED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        oldValue: {
+          discountType: order.discountType,
+          discountValue: order.discountValue,
+          discountAmount: order.discountAmount,
+        },
+        newValue: null,
+        reason: order.discountReason,
+        context,
+      });
     });
 
     return this.findOne(restaurantId, orderId);
@@ -500,11 +618,59 @@ export class OrdersService {
    * order here, so a later change to the restaurant's rate cannot rewrite a bill
    * that has already been paid.
    */
+  /**
+   * Takes the money and closes the bill.
+   *
+   * Two layers of protection, and both are needed. The idempotency key stops a
+   * retry - a tap that the network swallowed, a page refreshed mid-request -
+   * from settling twice, by replaying the first answer. The claim inside the
+   * transaction stops two *different* requests racing, which no key can prevent
+   * because they legitimately carry different keys.
+   */
   async settle(
     restaurantId: number,
     orderId: number,
     userId: number,
     dto: SettleOrderDto,
+    context?: AuditContext,
+    idempotencyKey?: string,
+  ): Promise<OrderDto> {
+    const outcome = await this.idempotencyService.run(
+      {
+        scope: IdempotencyScope.ORDER_SETTLE,
+        key: idempotencyKey,
+        restaurantId,
+        payload: { orderId, ...dto },
+        resourceType: 'ORDER',
+      },
+      () => this.settleOnce(restaurantId, orderId, userId, dto, context),
+    );
+
+    return outcome.result;
+  }
+
+  /**
+   * Settles on behalf of a captured payment, with nobody signed in.
+   *
+   * Goes through exactly the same path as a till settlement - the same claim on
+   * the open bill, the same audit record - so an online payment cannot settle a
+   * bill the till could not.
+   */
+  settleForPayment(
+    restaurantId: number,
+    orderId: number,
+    dto: SettleOrderDto,
+    context?: AuditContext,
+  ): Promise<OrderDto> {
+    return this.settleOnce(restaurantId, orderId, null, dto, context);
+  }
+
+  private async settleOnce(
+    restaurantId: number,
+    orderId: number,
+    userId: number | null,
+    dto: SettleOrderDto,
+    context?: AuditContext,
   ): Promise<OrderDto> {
     const order = await this.loadOrder(restaurantId, orderId);
     this.assertOpen(order);
@@ -519,10 +685,34 @@ export class OrdersService {
       );
     }
 
-    const taxRate = await this.taxRateFor(restaurantId);
+    const components = await this.taxComponentsFor(restaurantId);
+    const inventorySettings = await this.inventoryService.settingsFor(restaurantId);
 
     await this.dataSource.transaction(async (manager) => {
-      const settled = await recalculateOrder(manager, order.id, taxRate);
+      // Claim the bill before touching anything else.
+      //
+      // The checks above ran outside this transaction, so two tills pressing
+      // Settle at the same moment both reached them while the bill was still
+      // open. Moving the status with the open state as part of the WHERE makes
+      // the database the arbiter: exactly one caller can take a bill out of OPEN,
+      // and the loser is told so instead of being told it succeeded. It matters
+      // more than it looks - the day a payment provider is wired to settlement,
+      // two successes would be two captures.
+      const claimed = await manager.getRepository(Order).update(
+        { id: order.id, restaurantId, status: OrderStatus.OPEN },
+        {
+          status: OrderStatus.SETTLED,
+          paymentMethod: dto.paymentMethod,
+          settledAt: new Date(),
+          settledByUserId: userId ?? undefined,
+        },
+      );
+
+      if (claimed.affected === 0) {
+        throw new BadRequestException('This bill has already been settled or voided.');
+      }
+
+      const settled = await recalculateOrder(manager, order.id, components);
 
       // Anything still on the bill has been served by the time it is paid for.
       await manager
@@ -536,11 +726,35 @@ export class OrdersService {
 
       await this.closeTickets(manager, order.id, KotStatus.DONE);
 
-      await manager.getRepository(Order).update(settled.id, {
-        status: OrderStatus.SETTLED,
-        paymentMethod: dto.paymentMethod,
-        settledAt: new Date(),
-        settledByUserId: userId,
+      // Inside this transaction on purpose. A bill must never be left settled
+      // with its ingredients half taken out of stock, so if the deduction
+      // fails the settlement goes back with it. When inventory is switched
+      // off - which it is for every restaurant until somebody turns it on -
+      // this costs one already-loaded setting and does nothing else.
+      await this.inventoryService.consumeForOrderIn(
+        manager,
+        restaurantId,
+        order.id,
+        inventorySettings,
+        userId,
+        context,
+      );
+
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.BILL_SETTLED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        oldValue: { status: OrderStatus.OPEN },
+        newValue: {
+          status: OrderStatus.SETTLED,
+          paymentMethod: dto.paymentMethod,
+          total: settled.total,
+          amountPayable: settled.amountPayable,
+          orderNumber: settled.orderNumber,
+        },
+        context,
       });
     });
 
@@ -548,7 +762,13 @@ export class OrdersService {
   }
 
   /** Voids a whole bill, with the reason kept on the order. */
-  async cancel(restaurantId: number, orderId: number, dto: CancelOrderDto): Promise<OrderDto> {
+  async cancel(
+    restaurantId: number,
+    orderId: number,
+    dto: CancelOrderDto,
+    userId: number,
+    context?: AuditContext,
+  ): Promise<OrderDto> {
     const order = await this.loadOrder(restaurantId, orderId);
     this.assertOpen(order);
 
@@ -564,13 +784,37 @@ export class OrdersService {
 
       await this.closeTickets(manager, order.id, KotStatus.CANCELLED);
 
-      await manager.getRepository(Order).update(order.id, {
-        status: OrderStatus.CANCELLED,
-        cancelledReason: dto.reason,
-        subtotal: 0,
-        discountAmount: 0,
-        taxAmount: 0,
-        total: 0,
+      // Same claim as settling: a void racing a settle must not be able to zero
+      // a bill that has just been paid.
+      const claimed = await manager.getRepository(Order).update(
+        { id: order.id, restaurantId, status: OrderStatus.OPEN },
+        {
+          status: OrderStatus.CANCELLED,
+          cancelledReason: dto.reason,
+          subtotal: 0,
+          discountAmount: 0,
+          serviceChargeAmount: 0,
+          taxAmount: 0,
+          total: 0,
+          tdsAmount: 0,
+          amountPayable: 0,
+        },
+      );
+
+      if (claimed.affected === 0) {
+        throw new BadRequestException('This bill has already been settled or voided.');
+      }
+
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.BILL_VOIDED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        oldValue: { status: order.status, total: order.total, orderNumber: order.orderNumber },
+        newValue: { status: OrderStatus.CANCELLED, total: 0 },
+        reason: dto.reason,
+        context,
       });
     });
 
@@ -590,7 +834,7 @@ export class OrdersService {
   private async loadOrder(restaurantId: number, id: number): Promise<Order> {
     const order = await this.ordersRepository.findOne({
       where: { id, restaurantId },
-      relations: { items: true, table: true },
+      relations: { items: true, table: true, charges: true },
     });
 
     if (!order) {
@@ -732,12 +976,11 @@ export class OrdersService {
     return restaurant;
   }
 
-  private async taxRateFor(restaurantId: number): Promise<number> {
-    const restaurant = await this.restaurantsRepository.findOne({
-      where: { id: restaurantId },
-      select: { id: true, taxRate: true },
-    });
-
-    return restaurant?.taxRate ?? 0;
+  private taxComponentsFor(restaurantId: number): Promise<TaxComponentInput[]> {
+    return loadTaxComponents(
+      this.taxComponentsRepository,
+      this.restaurantsRepository,
+      restaurantId,
+    );
   }
 }

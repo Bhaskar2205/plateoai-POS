@@ -5,6 +5,7 @@ import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { BILLING_ROLES } from 'src/common/enums';
+import { DayEndReportDto } from './dto/day-end.dto';
 import { ReportRangeDto } from './dto/report-range.dto';
 import {
   AdjustmentsReportDto,
@@ -49,6 +50,25 @@ export class ReportsController {
     @Query() range: ReportRangeDto,
   ): Promise<SalesSummaryDto> {
     return this.reportsService.salesSummary(restaurantId, range);
+  }
+
+  @Get('day-end')
+  @ApiOperation({
+    summary: 'Day-end statement (Z report)',
+    description:
+      'What a till is closed on: one business day, with the tax broken down component by component - ' +
+      'CGST and SGST are filed on different lines, so a single tax total is not enough. Bills still ' +
+      'open are counted and shown but never added in, and the statement says so, because their money ' +
+      'has not been taken yet. Defaults to today. A business day starts at 05:00, so a bill settled ' +
+      'at 01:30 belongs to the night before.',
+  })
+  @ApiOkResponse({ type: DayEndReportDto })
+  dayEnd(
+    @ActiveRestaurantId() restaurantId: number,
+    @Query() range: ReportRangeDto,
+  ): Promise<DayEndReportDto> {
+    // `from` names the day; a day-end statement never spans a range.
+    return this.reportsService.dayEnd(restaurantId, range.from);
   }
 
   @Get('items')

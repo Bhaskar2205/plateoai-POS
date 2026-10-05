@@ -6,8 +6,11 @@ import type { UserRole } from './types';
  * a 403 error.
  */
 
-/** `RESTAURANT_ADMIN_ROLES`: table QR codes are printed and put in front of diners. */
-export const TABLE_ADMIN_ROLES: UserRole[] = ['SUPER_ADMIN', 'RESTAURANT_OWNER'];
+/** `RESTAURANT_ADMIN_ROLES`: what the restaurant itself answers for - QR codes, tax rates. */
+export const RESTAURANT_ADMIN_ROLES: UserRole[] = ['SUPER_ADMIN', 'RESTAURANT_OWNER'];
+
+/** Table QR codes are printed and put in front of diners, so owners only. */
+export const TABLE_ADMIN_ROLES: UserRole[] = RESTAURANT_ADMIN_ROLES;
 
 /** `ORDER_WRITE_ROLES`: taking orders and sending them to the kitchen. */
 export const ORDER_WRITE_ROLES: UserRole[] = [

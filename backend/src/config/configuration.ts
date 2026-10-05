@@ -53,6 +53,12 @@ export interface AppConfig {
     /** `true` only for throwaway local experiments - never in production. */
     synchronize: boolean;
     logging: boolean;
+    /**
+     * Connections mysql2 keeps open. The driver default is 10, which queues a
+     * burst of QR scans behind each other - each menu read is a few queries, so
+     * ten connections serialise a hundred diners.
+     */
+    poolSize: number;
     ssl: DatabaseSslConfig;
   };
   jwt: {
@@ -62,6 +68,30 @@ export interface AppConfig {
   throttle: {
     loginTtlSeconds: number;
     loginLimit: number;
+    /**
+     * Requests a minute, per IP, for the anonymous menu.
+     *
+     * Far above the general limit on purpose. A restaurant's diners all sit
+     * behind one NAT address, so 150 people scanning the QR code at the start of
+     * service look to the API like one client making 150 requests in a second.
+     * Under the general 120 they would not all be served.
+     */
+    publicMenuTtlSeconds: number;
+    publicMenuLimit: number;
+  };
+  idempotency: {
+    /** Days a used key is kept, so a late retry replays instead of re-running. */
+    retentionDays: number;
+  };
+  payments: {
+    /** How long an unpaid intent stays open before it is treated as abandoned. */
+    intentExpiryMinutes: number;
+    razorpay: {
+      /** All three, or the provider reports itself NOT_CONFIGURED. */
+      keyId: string;
+      keySecret: string;
+      webhookSecret: string;
+    };
   };
   uploads: {
     /**
@@ -80,6 +110,22 @@ export interface AppConfig {
     publicApiUrl: string;
     /** Largest upload accepted, in bytes, before re-encoding. */
     maxBytes: number;
+    /**
+     * Cloudflare Images. All three, or photos stay on the local volume.
+     *
+     * Partial credentials are the dangerous state - a token without an account
+     * hash can upload a photo it then cannot build a URL for, so the restaurant
+     * is billed for an image nobody can see.
+     */
+    cloudflare: {
+      accountId: string;
+      token: string;
+      /** The middle segment of every imagedelivery.net URL. */
+      accountHash: string;
+      /** Variant names configured in the Cloudflare dashboard. */
+      thumbnailVariant: string;
+      fullVariant: string;
+    };
   };
 }
 
@@ -159,6 +205,27 @@ export const configuration = (): AppConfig => {
         '',
       ),
       maxBytes: toInt(process.env.UPLOAD_MAX_BYTES, 8 * 1024 * 1024),
+      cloudflare: {
+        accountId: (process.env.CLOUDFLARE_ACCOUNT_ID ?? '').trim(),
+        token: (process.env.CLOUDFLARE_IMAGES_TOKEN ?? '').trim(),
+        accountHash: (process.env.CLOUDFLARE_IMAGES_ACCOUNT_HASH ?? '').trim(),
+        thumbnailVariant: (process.env.CLOUDFLARE_IMAGES_THUMB_VARIANT || 'thumb').trim(),
+        fullVariant: (process.env.CLOUDFLARE_IMAGES_FULL_VARIANT || 'full').trim(),
+      },
+    },
+    payments: {
+      intentExpiryMinutes: toInt(process.env.PAYMENT_INTENT_EXPIRY_MINUTES, 30),
+      razorpay: {
+        keyId: (process.env.RAZORPAY_KEY_ID ?? '').trim(),
+        keySecret: (process.env.RAZORPAY_KEY_SECRET ?? '').trim(),
+        webhookSecret: (process.env.RAZORPAY_WEBHOOK_SECRET ?? '').trim(),
+      },
+    },
+    idempotency: {
+      // How long a used key is kept so a late retry still replays rather than
+      // running the operation again. Long enough to cover a till reconnecting
+      // after an outage, short enough that the table does not grow forever.
+      retentionDays: toInt(process.env.IDEMPOTENCY_RETENTION_DAYS, 7),
     },
     database: {
       host: process.env.DB_HOST ?? 'localhost',
@@ -168,6 +235,7 @@ export const configuration = (): AppConfig => {
       name: process.env.DB_DATABASE ?? 'plateo',
       synchronize: toBool(process.env.DB_SYNCHRONIZE, false),
       logging: toBool(process.env.DB_LOGGING, false),
+      poolSize: toInt(process.env.DB_POOL_SIZE, 20),
       ssl: {
         enabled: toBool(process.env.DB_SSL, false),
         ca: parsePem(process.env.DB_SSL_CA),
@@ -181,6 +249,8 @@ export const configuration = (): AppConfig => {
     throttle: {
       loginTtlSeconds: toInt(process.env.LOGIN_THROTTLE_TTL, 60),
       loginLimit: toInt(process.env.LOGIN_THROTTLE_LIMIT, 5),
+      publicMenuTtlSeconds: toInt(process.env.PUBLIC_MENU_THROTTLE_TTL, 60),
+      publicMenuLimit: toInt(process.env.PUBLIC_MENU_THROTTLE_LIMIT, 600),
     },
   };
 };

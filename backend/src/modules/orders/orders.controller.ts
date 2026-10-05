@@ -21,6 +21,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
+import {
+  IdempotencyKeyHeader,
+  RequestContext,
+} from 'src/common/decorators/request-context.decorator';
+import type { AuditContext } from 'src/modules/audit/audit.service';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
@@ -35,7 +40,7 @@ import {
   SettleOrderDto,
   UpdateOrderItemDto,
 } from './dto/order-actions.dto';
-import { AddOrderItemsDto, CreateOrderDto } from './dto/order-input.dto';
+import { AddOrderItemsDto, CreateOrderDto, SetTdsDto } from './dto/order-input.dto';
 import { BillDto, KotPrintDto, OrderDto, TableOrderSummaryDto } from './dto/order.dto';
 import { OrdersService } from './orders.service';
 
@@ -129,8 +134,9 @@ export class OrdersController {
     @ActiveRestaurantId() restaurantId: number,
     @CurrentUser('id') userId: number,
     @Body() dto: CreateOrderDto,
+    @IdempotencyKeyHeader() idempotencyKey: string | undefined,
   ): Promise<OrderDto> {
-    return this.ordersService.create(restaurantId, userId, dto);
+    return this.ordersService.create(restaurantId, userId, dto, idempotencyKey);
   }
 
   @Post('orders/:id/items')
@@ -264,8 +270,31 @@ export class OrdersController {
     @ActiveRestaurantId() restaurantId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ApplyDiscountDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
   ): Promise<OrderDto> {
-    return this.ordersService.applyDiscount(restaurantId, id, dto);
+    return this.ordersService.applyDiscount(restaurantId, id, dto, userId, context);
+  }
+
+  @Post('orders/:id/tds')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...BILLING_ROLES)
+  @ApiOperation({
+    summary: 'Record TDS withheld on this bill',
+    description:
+      'For a bill a company settles and withholds income tax from. This is not a charge to the ' +
+      'guest and does not change the GST owed: it is computed on the value before GST, per CBDT ' +
+      'Circular 23/2017, and reduces what the restaurant collects. Send no rate, or 0, to clear it.',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  setTds(
+    @ActiveRestaurantId() restaurantId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetTdsDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<OrderDto> {
+    return this.ordersService.setTds(restaurantId, id, dto, userId, context);
   }
 
   @Delete('orders/:id/discount')
@@ -275,8 +304,10 @@ export class OrdersController {
   removeDiscount(
     @ActiveRestaurantId() restaurantId: number,
     @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
   ): Promise<OrderDto> {
-    return this.ordersService.removeDiscount(restaurantId, id);
+    return this.ordersService.removeDiscount(restaurantId, id, userId, context);
   }
 
   @Post('orders/:id/settle')
@@ -299,8 +330,10 @@ export class OrdersController {
     @CurrentUser('id') userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SettleOrderDto,
+    @RequestContext() context: AuditContext,
+    @IdempotencyKeyHeader() idempotencyKey: string | undefined,
   ): Promise<OrderDto> {
-    return this.ordersService.settle(restaurantId, id, userId, dto);
+    return this.ordersService.settle(restaurantId, id, userId, dto, context, idempotencyKey);
   }
 
   @Post('orders/:id/cancel')
@@ -315,7 +348,9 @@ export class OrdersController {
     @ActiveRestaurantId() restaurantId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CancelOrderDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
   ): Promise<OrderDto> {
-    return this.ordersService.cancel(restaurantId, id, dto);
+    return this.ordersService.cancel(restaurantId, id, dto, userId, context);
   }
 }

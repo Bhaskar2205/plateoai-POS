@@ -1,7 +1,15 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CalendarDays, ExternalLink, Mail, MapPin, Phone, Users } from 'lucide-react';
+import {
+  CalendarDays,
+  ExternalLink,
+  Mail,
+  MapPin,
+  Percent,
+  Phone,
+  Users,
+} from 'lucide-react';
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -143,30 +151,37 @@ export default function ProfilePage() {
                   </FormSection>
 
                   <FormSection title="Billing">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <TextField
-                        id="profile-tax-rate"
-                        label="Tax rate (%)"
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.01"
-                        placeholder="0"
-                        hint="Added to bills when they are settled. Leave at 0 if you do not add tax."
-                        error={errors.taxRate?.message}
-                        {...register('taxRate')}
-                      />
-                      <TextField
-                        id="profile-tax-number"
-                        label="GSTIN / tax number"
-                        placeholder="08AAAAA0000A1Z5"
-                        hint="Printed on bills. Optional."
-                        error={errors.taxNumber?.message}
-                        {...register('taxNumber')}
-                      />
+                    <TextField
+                      id="profile-tax-number"
+                      label="GSTIN / tax number"
+                      placeholder="08AAAAA0000A1Z5"
+                      hint="Printed on every bill. Optional."
+                      error={errors.taxNumber?.message}
+                      {...register('taxNumber')}
+                    />
+                    {/* The single percentage that used to live here is no longer the
+                        truth: a bill is charged from the tax components, which print
+                        CGST and SGST on separate lines as an invoice must. Editing one
+                        number here would have had no effect, which is worse than not
+                        offering it. */}
+                    <div className="flex items-start gap-3 rounded-xl border border-line bg-ground px-4 py-3">
+                      <Percent className="mt-0.5 size-4 shrink-0 text-brand-600" aria-hidden />
+                      <div className="min-w-0 text-sm">
+                        <p className="font-medium text-ink">Tax rates moved</p>
+                        <p className="mt-0.5 text-muted">
+                          Rates are now set charge by charge, so your bills can show CGST and SGST on
+                          their own lines and alcohol can be taxed differently from food.
+                        </p>
+                        <Link
+                          href="/restaurant/taxes"
+                          className="mt-1.5 inline-flex items-center gap-1 text-sm font-medium text-brand-700 underline underline-offset-2 hover:text-brand-600"
+                        >
+                          Open Taxes &amp; Charges
+                        </Link>
+                      </div>
                     </div>
                     <p className="text-xs text-muted">
-                      The rate in force is copied onto each bill when it is settled, so changing it
+                      What a bill charged is copied onto it when it is settled, so changing a rate
                       never alters a bill a diner has already paid.
                     </p>
                   </FormSection>

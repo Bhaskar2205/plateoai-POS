@@ -580,3 +580,12 @@ Summary of what it covers:
 
 Build order: 1 → 2 → 3 → 4 gives a demoable read-only scannable menu; 8 → 5 → 6 adds
 ordering; 7 and 9 are independent.
+
+
+
+
+
+
+Allocated Technology 
+
+Name,Desigination,Email adress/Phone Number And Linkdin is MUSt

@@ -9,9 +9,17 @@ import { Category } from 'src/modules/categories/entities/category.entity';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 import { Ingredient } from 'src/modules/ingredients/entities/ingredient.entity';
+import { InventoryMovement } from 'src/modules/inventory/entities/inventory-movement.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
 import { Order } from 'src/modules/orders/entities/order.entity';
 import { OrderItem } from 'src/modules/orders/entities/order-item.entity';
+import { OrderCharge } from 'src/modules/orders/entities/order-charge.entity';
+import { TaxComponent } from 'src/modules/taxes/entities/tax-component.entity';
+import { AuditLog } from 'src/modules/audit/entities/audit-log.entity';
+import { IdempotencyKey } from 'src/modules/idempotency/entities/idempotency-key.entity';
+import { PaymentIntent } from 'src/modules/payments/entities/payment-intent.entity';
+import { PaymentWebhookEvent } from 'src/modules/payments/entities/payment-webhook-event.entity';
+import { PaymentReconciliationException } from 'src/modules/payments/entities/payment-reconciliation-exception.entity';
 import { KotTicket } from 'src/modules/orders/entities/kot-ticket.entity';
 import { mysqlSslConnectionOptions } from './mysql-ssl';
 import { mysqlUtcConnectionOptions } from './mysql-utc';
@@ -30,10 +38,18 @@ export const entities = [
   Dish,
   Ingredient,
   DishIngredient,
+  InventoryMovement,
   RestaurantTable,
   Order,
   KotTicket,
   OrderItem,
+  OrderCharge,
+  TaxComponent,
+  AuditLog,
+  IdempotencyKey,
+  PaymentIntent,
+  PaymentWebhookEvent,
+  PaymentReconciliationException,
 ];
 
 export const buildDataSourceOptions = (): DataSourceOptions => {

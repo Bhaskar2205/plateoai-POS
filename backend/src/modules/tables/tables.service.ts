@@ -6,6 +6,13 @@ import type { AppConfig } from 'src/config/configuration';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { CreateTableDto, UpdateTableDto } from './dto/create-table.dto';
 import { RestaurantTableDto } from './dto/restaurant-table.dto';
+import {
+  AuditAction,
+  AuditEntity,
+  IdempotencyScope,
+} from 'src/common/enums';
+import { AuditService, type AuditContext } from 'src/modules/audit/audit.service';
+import { IdempotencyService } from 'src/modules/idempotency/idempotency.service';
 import { RestaurantTable } from './entities/restaurant-table.entity';
 import { generateTableToken } from './table-token';
 
@@ -26,12 +33,19 @@ export class TablesService {
     private readonly tablesRepository: Repository<RestaurantTable>,
     @InjectRepository(Restaurant)
     private readonly restaurantsRepository: Repository<Restaurant>,
+    private readonly auditService: AuditService,
+    private readonly idempotencyService: IdempotencyService,
     configService: ConfigService,
   ) {
     this.publicWebUrl = configService.get<AppConfig['publicWebUrl']>('publicWebUrl')!;
   }
 
-  async create(restaurantId: number, dto: CreateTableDto): Promise<RestaurantTableDto> {
+  async create(
+    restaurantId: number,
+    dto: CreateTableDto,
+    userId?: number,
+    context?: AuditContext,
+  ): Promise<RestaurantTableDto> {
     await this.assertNameIsFree(restaurantId, dto.name);
 
     const table = await this.saveWithFreshToken(
@@ -41,6 +55,16 @@ export class TablesService {
         isActive: dto.isActive ?? true,
       }),
     );
+
+    await this.auditService.record({
+      restaurantId,
+      userId: userId ?? null,
+      action: AuditAction.TABLE_CREATED,
+      entityType: AuditEntity.TABLE,
+      entityId: table.id,
+      newValue: { name: table.name, isActive: table.isActive },
+      context,
+    });
 
     return this.toDto(table, await this.restaurantSlug(restaurantId));
   }
@@ -63,7 +87,13 @@ export class TablesService {
     return this.toDto(table, await this.restaurantSlug(restaurantId));
   }
 
-  async update(restaurantId: number, id: number, dto: UpdateTableDto): Promise<RestaurantTableDto> {
+  async update(
+    restaurantId: number,
+    id: number,
+    dto: UpdateTableDto,
+    userId?: number,
+    context?: AuditContext,
+  ): Promise<RestaurantTableDto> {
     const table = await this.findEntity(restaurantId, id);
 
     if (dto.name !== undefined && dto.name !== table.name) {
@@ -71,9 +101,26 @@ export class TablesService {
       table.name = dto.name;
     }
 
+    // Only a change of activation is recorded. A rename is housekeeping, and a
+    // log full of renames is a log nobody reads when it matters.
+    const wasActive = table.isActive;
     if (dto.isActive !== undefined) table.isActive = dto.isActive;
 
     const saved = await this.tablesRepository.save(table);
+
+    if (dto.isActive !== undefined && dto.isActive !== wasActive) {
+      await this.auditService.record({
+        restaurantId,
+        userId: userId ?? null,
+        action: dto.isActive ? AuditAction.TABLE_REACTIVATED : AuditAction.TABLE_DEACTIVATED,
+        entityType: AuditEntity.TABLE,
+        entityId: saved.id,
+        oldValue: { isActive: wasActive },
+        newValue: { isActive: saved.isActive, name: saved.name },
+        context,
+      });
+    }
+
     return this.toDto(saved, await this.restaurantSlug(restaurantId));
   }
 
@@ -87,9 +134,57 @@ export class TablesService {
    * lost, photographed or tampered-with QR card can be retired without deleting
    * the table.
    */
-  async regenerateQr(restaurantId: number, id: number): Promise<RestaurantTableDto> {
+  /**
+   * Issues a new QR token, invalidating the printed card.
+   *
+   * Idempotent because it is irreversible: a retry after a timeout must not
+   * burn a second token and invalidate the card that the first call had just
+   * made valid.
+   */
+  async regenerateQr(
+    restaurantId: number,
+    id: number,
+    userId?: number,
+    context?: AuditContext,
+    idempotencyKey?: string,
+  ): Promise<RestaurantTableDto> {
+    const outcome = await this.idempotencyService.run(
+      {
+        scope: IdempotencyScope.TABLE_REGENERATE_QR,
+        key: idempotencyKey,
+        restaurantId,
+        payload: { tableId: id },
+        resourceType: 'TABLE',
+      },
+      () => this.regenerateQrOnce(restaurantId, id, userId, context),
+    );
+
+    return outcome.result;
+  }
+
+  private async regenerateQrOnce(
+    restaurantId: number,
+    id: number,
+    userId?: number,
+    context?: AuditContext,
+  ): Promise<RestaurantTableDto> {
     const table = await this.findEntity(restaurantId, id);
     const saved = await this.saveWithFreshToken(table);
+
+    // The token itself is never recorded: it is the credential printed on the
+    // card, and a log that holds it hands out table access to anyone who reads
+    // the log.
+    await this.auditService.record({
+      restaurantId,
+      userId: userId ?? null,
+      action: AuditAction.QR_REGENERATED,
+      entityType: AuditEntity.TABLE,
+      entityId: saved.id,
+      newValue: { name: saved.name },
+      reason: 'Previous QR code invalidated',
+      context,
+    });
+
     return this.toDto(saved, await this.restaurantSlug(restaurantId));
   }
 

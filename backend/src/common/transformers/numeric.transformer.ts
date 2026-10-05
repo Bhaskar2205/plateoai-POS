@@ -27,3 +27,24 @@ export class NumericTransformer implements ValueTransformer {
 }
 
 export const numericTransformer = new NumericTransformer();
+
+/**
+ * The same, for a DECIMAL(_,3) quantity, rounded to the three decimals the column
+ * actually holds.
+ *
+ * MySQL DECIMAL is exact, so there it changes nothing. SQLite - which the test
+ * suite runs on - stores DECIMAL as a float, so stock arithmetic done in the
+ * database comes back as 9.699999999999999, and an API that reports a shelf
+ * holding 14.199999999999999 kg of paneer is wrong in a way that is hard to
+ * unsee. Rounding on the way out states the column's contract in one place
+ * instead of at every call site.
+ */
+export class QuantityTransformer extends NumericTransformer {
+  from(value: string | number | null): number | null {
+    const parsed = super.from(value);
+
+    return parsed === null ? null : Math.round((parsed + Number.EPSILON) * 1000) / 1000;
+  }
+}
+
+export const quantityTransformer = new QuantityTransformer();

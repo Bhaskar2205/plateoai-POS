@@ -174,10 +174,27 @@ export function printBill(bill: Bill): Promise<void> {
             )
           : ''
       }
-      ${bill.taxAmount > 0 ? row(`Tax @ ${bill.taxRate}%`, money(bill.taxAmount)) : ''}
+      ${
+        /* Each component on its own line. A tax invoice that shows one combined
+           "tax 5%" is not a valid GST invoice: CGST and SGST are filed
+           separately and the guest is entitled to see both. */
+        bill.charges.length > 0
+          ? bill.charges
+              .map((charge) => row(`${escapeHtml(charge.name)} @ ${charge.rate}%`, money(charge.amount)))
+              .join('')
+          : bill.taxAmount > 0
+            ? row(`Tax @ ${bill.taxRate}%`, money(bill.taxAmount))
+            : ''
+      }
       <tr class="grand"><td class="label" colspan="2">TOTAL</td><td class="amount">${money(
         bill.total,
       )}</td></tr>
+      ${
+        bill.tdsAmount > 0
+          ? row(`TDS withheld @ ${bill.tdsRate}%`, `-${money(bill.tdsAmount)}`) +
+            row('Amount payable', money(bill.amountPayable))
+          : ''
+      }
     </table>
     <hr>
     <div class="foot">

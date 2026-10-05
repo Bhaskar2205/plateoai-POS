@@ -3,8 +3,10 @@
 import {
   ArrowLeft,
   ArrowRight,
+  Boxes,
   Armchair,
   BadgePercent,
+  CalendarCheck,
   ChartNoAxesColumn,
   LayoutList,
   Lock,
@@ -27,9 +29,11 @@ import {
   StaffReport,
   TablesReport,
 } from '@/components/reports/report-views';
+import { DayEndReport } from '@/components/reports/day-end-report';
 import { Kpi, money, RANGE_PRESETS, RangePicker } from '@/components/reports/report-shell';
 import { Card, CardBody } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
+import Link from 'next/link';
 import { PageHeader } from '@/components/page-header';
 
 /**
@@ -44,7 +48,7 @@ import { PageHeader } from '@/components/page-header';
  * range you picked stays picked as you move between reports.
  */
 
-type ReportId = 'sales' | 'items' | 'sections' | 'orders' | 'staff' | 'tables' | 'adjustments';
+type ReportId = 'day-end' | 'sales' | 'items' | 'sections' | 'orders' | 'staff' | 'tables' | 'adjustments';
 
 const REPORTS: Array<{
   id: ReportId;
@@ -53,6 +57,13 @@ const REPORTS: Array<{
   icon: LucideIcon;
   tint: string;
 }> = [
+  {
+    id: 'day-end',
+    title: 'Day-end statement',
+    description: 'Closing the till: the day’s takings with tax broken down the way it is filed.',
+    icon: CalendarCheck,
+    tint: 'bg-brand-50 text-brand-700',
+  },
   {
     id: 'sales',
     title: 'Sales summary',
@@ -202,6 +213,35 @@ export default function ReportsPage() {
                   </li>
                 );
               })}
+
+              {/* Its own page rather than a panel in this one: it has a shelf
+                  figure that is about today, not about the chosen range, and
+                  mixing the two under one date picker would read as a
+                  contradiction. */}
+              <li>
+                <Link
+                  href="/restaurant/reports/inventory"
+                  className="group flex h-full w-full items-start gap-3 rounded-2xl border border-line bg-surface p-4 text-left shadow-card transition-shadow hover:shadow-raised focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+                >
+                  <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-700">
+                    <Boxes className="size-5" aria-hidden />
+                  </span>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-semibold text-ink">Inventory</span>
+                      <ArrowRight
+                        className="size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5 group-hover:text-brand-600"
+                        aria-hidden
+                      />
+                    </span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+                      What came in, what the kitchen used, what was thrown away and what is
+                      running low.
+                    </span>
+                  </span>
+                </Link>
+              </li>
             </ul>
           </div>
 
@@ -248,6 +288,8 @@ function HeadlineNumbers({ range }: { range: ReportRange }) {
 
 function ReportBody({ id, range }: { id: ReportId; range: ReportRange }) {
   switch (id) {
+    case 'day-end':
+      return <DayEndReport range={range} />;
     case 'sales':
       return <SalesReport range={range} />;
     case 'items':

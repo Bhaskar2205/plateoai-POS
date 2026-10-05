@@ -16,6 +16,7 @@ import { DiscountType, OrderSource, OrderStatus, PaymentMethod } from 'src/commo
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
 import { User } from 'src/modules/users/entities/user.entity';
+import { OrderCharge } from './order-charge.entity';
 import { OrderItem } from './order-item.entity';
 
 /**
@@ -87,9 +88,61 @@ export class Order {
   @Column({ type: 'decimal', precision: 10, scale: 2, name: 'tax_amount', default: 0, transformer: numericTransformer })
   taxAmount: number;
 
-  @ApiProperty({ example: 604.8, description: 'subtotal - discount + tax.' })
+  @ApiProperty({
+    example: 60,
+    description: "The restaurant's own service charge. Not a tax, and taxed itself.",
+  })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    name: 'service_charge_amount',
+    default: 0,
+    transformer: numericTransformer,
+  })
+  serviceChargeAmount: number;
+
+  @ApiProperty({ example: 604.8, description: 'subtotal - discount + service charge + tax.' })
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0, transformer: numericTransformer })
   total: number;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 2,
+    description:
+      'Income tax withheld by the payer on a corporate bill. Never charged to the guest: it reduces what the restaurant receives.',
+  })
+  @Column({
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    name: 'tds_rate',
+    nullable: true,
+    transformer: numericTransformer,
+  })
+  tdsRate: number | null;
+
+  @ApiProperty({ example: 12 })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    name: 'tds_amount',
+    default: 0,
+    transformer: numericTransformer,
+  })
+  tdsAmount: number;
+
+  @ApiProperty({ example: 592.8, description: 'total - TDS. What the restaurant actually collects.' })
+  @Column({
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    name: 'amount_payable',
+    default: 0,
+    transformer: numericTransformer,
+  })
+  amountPayable: number;
 
   @ApiPropertyOptional({ enum: PaymentMethod, nullable: true })
   @Column({ type: 'varchar', length: 16, name: 'payment_method', nullable: true })
@@ -141,4 +194,7 @@ export class Order {
 
   @OneToMany(() => OrderItem, (item) => item.order)
   items: OrderItem[];
+
+  @OneToMany(() => OrderCharge, (charge) => charge.order)
+  charges: OrderCharge[];
 }

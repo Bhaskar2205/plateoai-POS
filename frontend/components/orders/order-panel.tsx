@@ -6,6 +6,7 @@ import {
   Check,
   ChefHat,
   Clock,
+  Landmark,
   Minus,
   Plus,
   Printer,
@@ -15,6 +16,7 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
+import { newIdempotencyKey } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatMoney, formatTime } from '@/lib/format';
 import { MAX_DISCOUNT_PERCENT } from '@/lib/permissions';
@@ -29,6 +31,7 @@ import {
   useCancelOrderItem,
   useRemoveDiscount,
   useSendToKitchen,
+  useSetTds,
   useSettleOrder,
   useUpdateOrderItem,
   type OrderItemInput,
@@ -67,7 +70,11 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
 
   const [discounting, setDiscounting] = useState(false);
   const [settling, setSettling] = useState(false);
+  // Fixed when the dialog opens, so a double-click sends the same key and the
+  // API answers the second press with the first one's result.
+  const [settleKey, setSettleKey] = useState<string | null>(null);
   const [voiding, setVoiding] = useState(false);
+  const [recordingTds, setRecordingTds] = useState(false);
   const [cancellingItem, setCancellingItem] = useState<OrderItem | null>(null);
 
   const addItems = useAddOrderItems({
@@ -118,10 +125,25 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
   });
 
   const settle = useSettleOrder({
-    onSuccess: async (settled) => {
+    // Settling is a money action, printing is a paper action. Tying them together
+    // meant every settled bill opened a print dialog someone had to dismiss, and
+    // a table that pays by UPI and wants no paper is the common case. Print stays
+    // available on the settled bill for whoever actually wants it.
+    onSuccess: (settled) => {
       setSettling(false);
       toast.success(`Bill #${settled.orderNumber} settled.`);
-      await print();
+    },
+    onError: (error) => toast.error(error),
+  });
+
+  const setTds = useSetTds({
+    onSuccess: (updated) => {
+      setRecordingTds(false);
+      toast.success(
+        updated.tdsRate === null
+          ? 'TDS removed from this bill.'
+          : `TDS recorded at ${updated.tdsRate}%.`,
+      );
     },
     onError: (error) => toast.error(error),
   });
@@ -385,15 +407,41 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
                 tone="discount"
               />
             )}
-            {order.taxAmount > 0 && (
+            {/* Each charge on its own line: a GST invoice has to show CGST and
+                SGST separately, and a guest querying a service charge needs to
+                see it apart from the tax. */}
+            {order.charges.map((charge, index) => (
+              <Row
+                key={`${index}-${charge.kind}-${charge.name}`}
+                label={`${charge.name} @ ${charge.rate}%`}
+                value={formatMoney(charge.amount)}
+              />
+            ))}
+            {order.charges.length === 0 && order.taxAmount > 0 && (
               <Row label={`Tax @ ${order.taxRate}%`} value={formatMoney(order.taxAmount)} />
             )}
+
             <div className="flex items-baseline justify-between border-t border-line pt-3">
               <span className="text-sm font-semibold text-ink">Grand total</span>
               <span className="text-xl font-bold text-ink tabular-nums">
                 {formatMoney(order.total)}
               </span>
             </div>
+
+            {order.tdsAmount > 0 && (
+              <div className="space-y-1 rounded-lg bg-info-50 px-3 py-2">
+                <Row
+                  label={`TDS withheld @ ${order.tdsRate}%`}
+                  value={`- ${formatMoney(order.tdsAmount)}`}
+                />
+                <div className="flex items-baseline justify-between">
+                  <span className="text-xs font-semibold text-info-700">To collect</span>
+                  <span className="text-sm font-bold text-info-700 tabular-nums">
+                    {formatMoney(order.amountPayable)}
+                  </span>
+                </div>
+              </div>
+            )}
 
             {order.status === 'SETTLED' && (
               <p className="rounded-lg bg-brand-50 px-3 py-2 text-xs text-brand-700">
@@ -446,7 +494,18 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
                     </Button>
                   )}
 
-                  <Button className="w-full" onClick={() => setSettling(true)}>
+                  <Button variant="secondary" className="w-full" onClick={() => setRecordingTds(true)}>
+                    <Landmark className="size-4" aria-hidden />
+                    {order.tdsRate === null ? 'Record TDS' : `TDS @ ${order.tdsRate}%`}
+                  </Button>
+
+                  <Button
+                    className="w-full"
+                    onClick={() => {
+                      setSettleKey(newIdempotencyKey());
+                      setSettling(true);
+                    }}
+                  >
                     <Receipt className="size-4" aria-hidden />
                     Settle bill
                   </Button>
@@ -475,12 +534,22 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
         onSubmit={(values) => applyDiscount.mutate({ orderId: order.id, ...values })}
       />
 
+      <TdsDialog
+        open={recordingTds}
+        currentRate={order.tdsRate}
+        submitting={setTds.isPending}
+        onClose={() => setRecordingTds(false)}
+        onSubmit={(rate) => setTds.mutate({ orderId: order.id, rate })}
+      />
+
       <SettleDialog
         open={settling}
         total={order.total}
         submitting={settle.isPending}
         onClose={() => setSettling(false)}
-        onSubmit={(paymentMethod) => settle.mutate({ orderId: order.id, paymentMethod })}
+        onSubmit={(paymentMethod) =>
+          settle.mutate({ orderId: order.id, paymentMethod, idempotencyKey: settleKey ?? undefined })
+        }
       />
 
       <VoidDialog
@@ -577,6 +646,78 @@ function ItemStatusBadge({ item }: { item: OrderItem }) {
   return <Badge tone="neutral">with kitchen</Badge>;
 }
 
+/**
+ * Records income tax a corporate payer withholds from this bill.
+ *
+ * Worth being explicit about, because it is not a charge to the guest: the payer
+ * deducts it and pays it to the department, so the restaurant collects less than
+ * the bill says while still owing the same GST. A waiter never sees this - it is
+ * part of settling, which is an owner or manager job.
+ */
+function TdsDialog({
+  open,
+  currentRate,
+  submitting,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  currentRate: number | null;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (rate: number | null) => void;
+}) {
+  const [rate, setRate] = useState(String(currentRate ?? 2));
+
+  const numeric = Number(rate);
+  const valid = Number.isFinite(numeric) && numeric >= 0 && numeric <= 30;
+
+  return (
+    <Modal
+      open={open}
+      title="Record TDS withheld"
+      description="For a bill a company settles and deducts tax from. It does not change the GST owed."
+      onClose={onClose}
+      footer={
+        <>
+          {currentRate !== null && (
+            <Button variant="ghost" onClick={() => onSubmit(null)} disabled={submitting}>
+              Remove
+            </Button>
+          )}
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button loading={submitting} disabled={!valid} onClick={() => onSubmit(numeric)}>
+            <Check className="size-4" aria-hidden />
+            Record
+          </Button>
+        </>
+      }
+    >
+      <label className="block">
+        <span className="text-sm font-medium text-ink">Rate withheld (%)</span>
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          max="30"
+          value={rate}
+          onChange={(event) => setRate(event.target.value)}
+          className="mt-1 h-11 w-full rounded-lg border border-line bg-surface px-3 text-right text-sm font-semibold text-ink tabular-nums focus:border-brand-500 focus:outline-none"
+        />
+      </label>
+      <p className="mt-2 text-xs text-muted">
+        Worked out on the value before GST, which is what the rules direct when tax is shown
+        separately on the invoice. It reduces what you collect, not what you owe.
+      </p>
+      {!valid && (
+        <p className="mt-2 text-xs text-danger-600">Enter a rate between 0 and 30.</p>
+      )}
+    </Modal>
+  );
+}
+
 function DiscountDialog({
   open,
   submitting,
@@ -669,7 +810,7 @@ function SettleDialog({
     <Modal
       open={open}
       title={`Settle ${formatMoney(total)}`}
-      description="The bill is frozen once it is settled, and prints automatically."
+      description="The bill is frozen once it is settled. Printing stays a separate step."
       onClose={onClose}
       footer={
         <>

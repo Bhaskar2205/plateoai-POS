@@ -9,7 +9,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
-import { RestaurantStatus } from 'src/common/enums';
+import { InventoryConsumptionMode, InventoryMode, RestaurantStatus } from 'src/common/enums';
 import { numericTransformer } from 'src/common/transformers/numeric.transformer';
 import { RestaurantUser } from './restaurant-user.entity';
 
@@ -99,6 +99,57 @@ export class Restaurant {
   })
   @Column({ type: 'varchar', length: 32, name: 'tax_number', nullable: true })
   taxNumber: string | null;
+
+  /**
+   * Whether Plateo pays any attention to stock.
+   *
+   * DISABLED for everyone until somebody turns it on, and that default is the
+   * whole point: a restaurant that never opens the inventory screen must see its
+   * till behave exactly as it did before this feature existed. Nothing is
+   * calculated, nothing is deducted, and no warning appears anywhere.
+   */
+  @ApiProperty({ enum: InventoryMode, example: InventoryMode.DISABLED })
+  @Column({ type: 'varchar', length: 16, name: 'inventory_mode', default: InventoryMode.DISABLED })
+  inventoryMode: InventoryMode;
+
+  /**
+   * When a sale is treated as having used its ingredients.
+   *
+   * Settlement by default, because a settled bill is the one event in Plateo that
+   * is not expected to be undone. Deducting when an order is placed means every
+   * cancelled order needs a reversal.
+   */
+  @ApiProperty({ enum: InventoryConsumptionMode, example: InventoryConsumptionMode.BILL_SETTLED })
+  @Column({
+    type: 'varchar',
+    length: 20,
+    name: 'inventory_consumption_mode',
+    default: InventoryConsumptionMode.BILL_SETTLED,
+  })
+  inventoryConsumptionMode: InventoryConsumptionMode;
+
+  /**
+   * Whether stock may go below zero.
+   *
+   * False, and a restaurant should think before changing it. True is honest about
+   * one thing - that the kitchen served the dish whatever the computer thought -
+   * and dishonest about another, because a negative figure tells you the recipe
+   * or the counting is wrong and reads as if it were stock.
+   */
+  @ApiProperty({ example: false })
+  @Column({ type: 'boolean', name: 'allow_negative_stock', default: false })
+  allowNegativeStock: boolean;
+
+  /**
+   * Whether running out of an ingredient takes its dishes off the menu by itself.
+   *
+   * Off by default. A wrong recipe or a missed delivery entry would otherwise
+   * empty the menu during service, and a cook who can see the paneer in front of
+   * them should not be told the dish is unavailable.
+   */
+  @ApiProperty({ example: false })
+  @Column({ type: 'boolean', name: 'auto_disable_out_of_stock_dishes', default: false })
+  autoDisableOutOfStockDishes: boolean;
 
   @ApiProperty()
   @CreateDateColumn({ name: 'created_at' })

@@ -10,8 +10,32 @@
 
 const TOKEN_KEY = 'plateo.accessToken';
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:4000';
+/** The API port to assume when the host is derived rather than configured. */
+const DEV_API_PORT = process.env.NEXT_PUBLIC_API_PORT ?? '4000';
+
+/**
+ * Where the browser sends API calls.
+ *
+ * An explicit NEXT_PUBLIC_API_URL always wins, which is how production is
+ * configured. Without one, the API is assumed to be on the same host the page
+ * came from: open the app at localhost and it calls localhost, open it from a
+ * phone at the machine's LAN address and it calls that address.
+ *
+ * That last part is the point. A hard-coded development IP goes stale every time
+ * the machine joins a different network, and the only symptom is that signing in
+ * fails with a fetch error that says nothing about why.
+ */
+function resolveApiBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (configured) return configured.replace(/\/$/, '');
+
+  // On the server there is no page host to borrow, and the API is local anyway.
+  if (typeof window === 'undefined') return `http://localhost:${DEV_API_PORT}`;
+
+  return `${window.location.protocol}//${window.location.hostname}:${DEV_API_PORT}`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 /** The error envelope every failing Plateo endpoint returns. */
 export interface ApiErrorBody {
@@ -73,10 +97,32 @@ interface RequestOptions {
   /** Skip the Authorization header (register / login). */
   anonymous?: boolean;
   signal?: AbortSignal;
+  /**
+   * Marks this request as a repeat of the same operation if it is sent again.
+   *
+   * Only for things that must not happen twice - settling a bill, opening one,
+   * replacing a QR code. The API answers a repeat with the original response
+   * rather than doing the work again.
+   */
+  idempotencyKey?: string;
+}
+
+/**
+ * A key for one attempt at an irreversible operation.
+ *
+ * `crypto.randomUUID` needs a secure context, which a till on a plain-HTTP LAN
+ * is not, so there is a fallback.
+ */
+export function newIdempotencyKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `k-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, anonymous = false, signal } = options;
+  const { method = 'GET', body, anonymous = false, signal, idempotencyKey } = options;
   const token = anonymous ? null : tokenStorage.get();
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -85,6 +131,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });

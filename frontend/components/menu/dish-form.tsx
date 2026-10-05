@@ -27,6 +27,20 @@ import { PhotoUpload } from './photo-upload';
  *    "Veg or non-veg" rather than diet type, "Section" rather than category.
  */
 
+/**
+ * Which tax rules a dish follows.
+ *
+ * Here because not everything on a menu is taxed alike: alcohol is outside GST
+ * and pays state VAT instead, and a sealed packaged item can carry its own rate.
+ * A restaurant that sells only cooked food never has to touch this.
+ */
+const TAX_GROUP_CHOICES = [
+  { value: 'STANDARD' as const, label: 'Food & drink', hint: 'Cooked and served. The usual.' },
+  { value: 'ALCOHOL' as const, label: 'Alcohol', hint: 'Outside GST; state VAT instead.' },
+  { value: 'PACKAGED' as const, label: 'Packaged', hint: 'Sold sealed, as bought.' },
+  { value: 'EXEMPT' as const, label: 'No tax', hint: 'Carries nothing.' },
+];
+
 const DIET_CHOICES = [
   { value: 'VEG', label: 'Veg', colour: '#1f8a3b' },
   { value: 'NON_VEG', label: 'Non-veg', colour: '#963a14' },
@@ -128,6 +142,29 @@ export function DishForm({
                 </ChoiceChip>
               ))}
             </div>
+          </fieldset>
+
+          <fieldset>
+            <legend className="mb-1.5 block text-sm font-medium text-ink">How it is taxed</legend>
+            <p className="mb-2 text-xs text-muted">
+              Leave this on Food &amp; drink unless the dish is an exception. Alcohol is outside GST
+              and takes state VAT, so it has to be marked.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {TAX_GROUP_CHOICES.map((choice) => (
+                <ChoiceChip
+                  key={choice.value}
+                  selected={(values.taxGroup ?? 'STANDARD') === choice.value}
+                  onClick={() => form.setValue('taxGroup', choice.value, { shouldDirty: true })}
+                >
+                  {choice.label}
+                </ChoiceChip>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              {TAX_GROUP_CHOICES.find((choice) => choice.value === (values.taxGroup ?? 'STANDARD'))?.hint}{' '}
+              The rates themselves live on the Taxes &amp; Charges page.
+            </p>
           </fieldset>
         </Step>
 

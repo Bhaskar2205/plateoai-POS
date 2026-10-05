@@ -5,6 +5,7 @@ import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { KotTicket } from 'src/modules/orders/entities/kot-ticket.entity';
 import { OrderItem } from 'src/modules/orders/entities/order-item.entity';
 import { Order } from 'src/modules/orders/entities/order.entity';
+import { OrderCharge } from 'src/modules/orders/entities/order-charge.entity';
 import { ReportsController } from './reports.controller';
 import { ReportsService } from './reports.service';
 
@@ -13,7 +14,7 @@ import { ReportsService } from './reports.service';
  * nothing that writes, so no report can ever change a bill it is counting.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([Order, OrderItem, KotTicket, Dish, Category])],
+  imports: [TypeOrmModule.forFeature([Order, OrderItem, OrderCharge, KotTicket, Dish, Category])],
   controllers: [ReportsController],
   providers: [ReportsService],
 })

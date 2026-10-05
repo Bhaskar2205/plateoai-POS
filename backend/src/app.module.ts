@@ -13,7 +13,12 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { DishesModule } from './modules/dishes/dishes.module';
 import { IngredientsModule } from './modules/ingredients/ingredients.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { TaxesModule } from './modules/taxes/taxes.module';
+import { PaymentsModule } from './modules/payments/payments.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { IdempotencyModule } from './modules/idempotency/idempotency.module';
 import { PublicMenuModule } from './modules/public-menu/public-menu.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { RestaurantsModule } from './modules/restaurants/restaurants.module';
@@ -50,10 +55,15 @@ import { UsersModule } from './modules/users/users.module';
     AuthModule,
     CategoriesModule,
     IngredientsModule,
+    InventoryModule,
     DishesModule,
     PublicMenuModule,
     TablesModule,
+    AuditModule,
+    IdempotencyModule,
     OrdersModule,
+    PaymentsModule,
+    TaxesModule,
     ReportsModule,
     UploadsModule,
   ],

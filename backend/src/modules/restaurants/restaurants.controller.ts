@@ -3,6 +3,8 @@ import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
+import { RequestContext } from 'src/common/decorators/request-context.decorator';
+import type { AuditContext } from 'src/modules/audit/audit.service';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RESTAURANT_ADMIN_ROLES, UserRole } from 'src/common/enums';
 import { KitchenCodeDto } from './dto/kitchen-code.dto';
@@ -81,8 +83,12 @@ export class RestaurantsController {
       'longer controls. Every kitchen screen must then be signed in again with the new code.',
   })
   @ApiOkResponse({ type: KitchenCodeDto })
-  async regenerateKitchenCode(@ActiveRestaurantId() restaurantId: number): Promise<KitchenCodeDto> {
-    const code = await this.restaurantsService.regenerateKitchenCode(restaurantId);
+  async regenerateKitchenCode(
+    @ActiveRestaurantId() restaurantId: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<KitchenCodeDto> {
+    const code = await this.restaurantsService.regenerateKitchenCode(restaurantId, userId, context);
 
     return { code, display: formatKitchenCode(code) };
   }

@@ -9,6 +9,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import { IdempotencyKeyHeader } from 'src/common/decorators/request-context.decorator';
 import { Public } from 'src/common/decorators/public.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { GENERAL_THROTTLE } from 'src/common/throttling';
@@ -67,8 +68,9 @@ export class DinerOrdersController {
   placeOrder(
     @Param('slug') slug: string,
     @Body() dto: PlaceDinerOrderDto,
+    @IdempotencyKeyHeader() idempotencyKey?: string,
     @Query('table') table?: unknown,
   ): Promise<DinerOrderReceiptDto> {
-    return this.dinerOrdersService.placeOrder(slug, table, dto);
+    return this.dinerOrdersService.placeOrder(slug, table, dto, idempotencyKey);
   }
 }

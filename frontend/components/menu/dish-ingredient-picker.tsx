@@ -7,6 +7,9 @@ import { useFieldArray, type UseFormReturn } from 'react-hook-form';
 import { queryKeys, useSaveIngredient } from '@/lib/queries';
 import type { DishValues } from '@/lib/schemas';
 import type { Ingredient } from '@/lib/types';
+import { formatMoney } from '@/lib/format';
+import { defaultRecipeUnit, recipeLineCost } from '@/components/inventory/recipe-cost';
+import { fromPaise } from '@/components/inventory/stock-units';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/toast';
 
@@ -48,7 +51,9 @@ export function DishIngredientPicker({
 
   const appendLine = (ingredientId: number) => {
     append(
-      { ingredientId, quantity: '', unit: 'g' },
+      // Grams against stock held in kilograms is the ordinary case, so the line
+      // starts in the unit a recipe is actually written in.
+      { ingredientId, quantity: '', unit: defaultRecipeUnit(byId.get(ingredientId)) },
       { shouldFocus: true, focusName: `ingredients.${fields.length}.quantity` },
     );
   };
@@ -79,6 +84,11 @@ export function DishIngredientPicker({
             const ingredient = byId.get(lines[index]?.ingredientId ?? field.ingredientId);
             const errors = form.formState.errors.ingredients?.[index];
             const name = ingredient?.name ?? 'Removed ingredient';
+            const cost = recipeLineCost(
+              lines[index]?.quantity ?? '',
+              lines[index]?.unit ?? '',
+              ingredient,
+            );
 
             return (
               <li key={field.id} className="rounded-md border border-line bg-ground/60 p-2.5">
@@ -128,11 +138,22 @@ export function DishIngredientPicker({
                     {errors.quantity?.message ?? errors.unit?.message}
                   </p>
                 )}
+
+                {/* What this line costs, as it is typed. A note instead of a
+                    number when the unit is not something that can be weighed. */}
+                {cost.costPaise !== null && cost.costPaise > 0 && (
+                  <p className="mt-1.5 text-xs text-muted tabular-nums">
+                    {formatMoney(fromPaise(cost.costPaise))} per dish
+                  </p>
+                )}
+                {cost.note && <p className="mt-1.5 text-xs text-warn-600">{cost.note}</p>}
               </li>
             );
           })}
         </ul>
       )}
+
+      <RecipeCost lines={lines} byId={byId} />
 
       {pantry.length > 0 && (
         <div>
@@ -310,5 +331,41 @@ function NewIngredientInline({ onCreated }: { onCreated: (ingredientId: number) 
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * What the dish costs to make, from the lines that can be costed.
+ *
+ * Says how many lines it could not cost rather than quietly leaving them out: a
+ * food cost that is wrong because a line said "1 tbsp" is worse than no figure,
+ * because it looks right.
+ */
+function RecipeCost({
+  lines,
+  byId,
+}: {
+  lines: DishValues['ingredients'];
+  byId: Map<number, Ingredient>;
+}) {
+  const costs = lines.map((line) =>
+    recipeLineCost(line.quantity, line.unit, byId.get(line.ingredientId)),
+  );
+
+  const counted = costs.filter((cost) => cost.costPaise !== null && cost.costPaise > 0);
+  const uncosted = costs.filter((cost) => cost.costPaise === null && cost.note !== null).length;
+
+  if (counted.length === 0) return null;
+
+  const total = counted.reduce((sum, cost) => sum + (cost.costPaise ?? 0), 0);
+
+  return (
+    <p className="mt-3 border-t border-line pt-3 text-sm text-muted">
+      Ingredients cost{' '}
+      <span className="font-semibold text-ink tabular-nums">{formatMoney(fromPaise(total))}</span>{' '}
+      per dish
+      {uncosted > 0 &&
+        ` · ${uncosted} line${uncosted === 1 ? '' : 's'} not included, see the notes above`}
+    </p>
   );
 }

@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import { ALLOWED_METHODS, ALLOWED_REQUEST_HEADERS } from './common/cors';
 import { resolve } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -13,7 +14,14 @@ import type { AppConfig } from './config/configuration';
 const SWAGGER_PATH = 'api/docs';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: false });
+  // rawBody keeps the exact bytes of each request alongside the parsed body.
+  // Payment webhook signatures are computed over those bytes, and re-serialising
+  // JSON can reorder keys or change number formatting - so a signature checked
+  // against a re-serialised body would never match.
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: false,
+    rawBody: true,
+  });
   const configService = app.get(ConfigService);
 
   const port = configService.get<number>('port')!;
@@ -32,8 +40,11 @@ async function bootstrap(): Promise<void> {
   // credentials stay off and the allow-list only needs to cover the origins.
   app.enableCors({
     origin: corsOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: [...ALLOWED_METHODS],
+    // Defined in common/cors.ts, with a spec that checks it against what the
+    // frontend actually sends: a header missing from this list blocks the whole
+    // request rather than merely dropping the header.
+    allowedHeaders: [...ALLOWED_REQUEST_HEADERS],
     credentials: false,
     maxAge: 86400,
   });

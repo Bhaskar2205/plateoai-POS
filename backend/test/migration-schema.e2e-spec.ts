@@ -96,27 +96,37 @@ function parseAllMigrations(): Map<string, Map<string, ParsedColumn>> {
       tables.set(name, columns);
     }
 
-    const addPattern = /ALTER TABLE `(\w+)` ADD `(\w+)` ([A-Z]+)(?:\([\d,]+\))?([^'"`]*)/g;
-    for (const match of up.matchAll(addPattern)) {
-      const [, table, column, type, rest] = match;
-      tables.get(table)?.set(column, {
-        type: type.toUpperCase(),
-        nullable: !/\bNOT NULL\b/i.test(rest),
-      });
-    }
+    // One statement at a time. An ALTER TABLE may carry several comma-separated
+    // clauses, and scanning the whole file for clause patterns would attribute a
+    // clause to whichever table was named last rather than to its own statement.
+    for (const chunk of up.split('queryRunner.query(').slice(1)) {
+      const altered = /ALTER TABLE `(\w+)`/.exec(chunk);
+      if (!altered) continue;
 
-    // MODIFY runs after ADD in a migration's up(), e.g. add nullable -> backfill -> NOT NULL.
-    const modifyPattern = /ALTER TABLE `(\w+)` MODIFY `(\w+)` ([A-Z]+)(?:\([\d,]+\))?([^'"`]*)/g;
-    for (const match of up.matchAll(modifyPattern)) {
-      const [, table, column, type, rest] = match;
-      tables.get(table)?.set(column, {
-        type: type.toUpperCase(),
-        nullable: !/\bNOT NULL\b/i.test(rest),
-      });
-    }
+      const table = altered[1];
 
-    for (const match of up.matchAll(/ALTER TABLE `(\w+)` DROP COLUMN `(\w+)`/g)) {
-      tables.get(match[1])?.delete(match[2]);
+      // `ADD COLUMN x` and `ADD x` are both legal, and both appear in this project.
+      const addPattern = /\bADD (?:COLUMN )?`(\w+)` ([A-Z]+)(?:\([\d,]+\))?([^,\r\n]*)/g;
+      for (const [, column, type, rest] of chunk.matchAll(addPattern)) {
+        tables.get(table)?.set(column, {
+          type: type.toUpperCase(),
+          nullable: !/\bNOT NULL\b/i.test(rest),
+        });
+      }
+
+      // MODIFY runs after ADD in a migration's up(), e.g. add nullable -> backfill
+      // -> NOT NULL.
+      const modifyPattern = /\bMODIFY (?:COLUMN )?`(\w+)` ([A-Z]+)(?:\([\d,]+\))?([^,\r\n]*)/g;
+      for (const [, column, type, rest] of chunk.matchAll(modifyPattern)) {
+        tables.get(table)?.set(column, {
+          type: type.toUpperCase(),
+          nullable: !/\bNOT NULL\b/i.test(rest),
+        });
+      }
+
+      for (const [, column] of chunk.matchAll(/\bDROP COLUMN `(\w+)`/g)) {
+        tables.get(table)?.delete(column);
+      }
     }
   }
 
@@ -133,6 +143,7 @@ const TYPE_MAP: Record<string, string> = {
   datetime: 'DATETIME',
   date: 'DATE',
   smallint: 'SMALLINT',
+  bigint: 'BIGINT',
 };
 
 describe('InitSchema migration matches the entities', () => {
@@ -152,20 +163,134 @@ describe('InitSchema migration matches the entities', () => {
     await (dataSource as unknown as { buildMetadatas: () => Promise<void> }).buildMetadatas();
   });
 
-  it('creates the seven Week 1 tables plus tables, orders and kitchen tickets', () => {
+  it('creates the seven Week 1 tables plus tables, orders, kitchen tickets and tax', () => {
     expect([...migrationTables.keys()].sort()).toEqual([
+      'audit_logs',
       'categories',
       'dish_ingredients',
       'dishes',
+      'idempotency_keys',
       'ingredients',
+      'inventory_movements',
       'kot_tickets',
+      'order_charges',
       'order_items',
       'orders',
+      'payment_intents',
+      'payment_reconciliation_exceptions',
+      'payment_webhook_events',
       'restaurant_tables',
+      'restaurant_tax_components',
       'restaurant_users',
       'restaurants',
       'users',
     ]);
+  });
+
+  /**
+   * The tax migration has to be safe on a database that is already billing: it
+   * adds, never rewrites, and an existing flat rate has to survive as components
+   * that charge the same total.
+   */
+  it('adds tax components additively and keeps an existing flat rate charging the same', () => {
+    const sql = readFileSync(
+      join(MIGRATIONS_DIR, '1759276800000-AddTaxComponentsAndCharges.ts'),
+      'utf8',
+    );
+    const up = sql.split('public async down')[0];
+    const down = sql.split('public async down')[1];
+
+    // Nothing existing is dropped or rewritten on the way up.
+    expect(up).not.toMatch(/DROP TABLE/);
+    expect(up).not.toMatch(/DROP COLUMN/);
+    // The old single rate stays where it is, so bills keep working during a deploy.
+    expect(up).not.toMatch(/`restaurants`[\s\S]*?DROP/);
+
+    // Lines and dishes both carry a tax group, defaulting to ordinary food.
+    expect(up).toMatch(/ALTER TABLE `dishes` ADD `tax_group` VARCHAR\(16\) NOT NULL DEFAULT 'STANDARD'/);
+    expect(up).toMatch(/ALTER TABLE `order_items` ADD `tax_group` VARCHAR\(16\) NOT NULL DEFAULT 'STANDARD'/);
+
+    // Existing bills owe what they owed.
+    expect(up).toMatch(/UPDATE `orders` SET `amount_payable` = `total`/);
+
+    // A flat rate becomes two components that add back to it.
+    expect(up).toMatch(/SELECT `id`, `tax_rate` FROM `restaurants` WHERE `tax_rate` > 0/);
+    expect(up).toMatch(/INSERT INTO `restaurant_tax_components`/);
+
+    // Both new tables cascade with their parent, and the down path is complete.
+    expect(up).toMatch(/FK_order_charges_order[\s\S]*?ON DELETE CASCADE/);
+    expect(up).toMatch(/FK_tax_components_restaurant[\s\S]*?ON DELETE CASCADE/);
+    expect(down).toMatch(/DROP TABLE `order_charges`/);
+    expect(down).toMatch(/DROP TABLE `restaurant_tax_components`/);
+  });
+
+  /**
+   * The idempotency table only works if the database enforces the uniqueness.
+   * An application-level check would let two requests both look, both find
+   * nothing, and both proceed - which is the duplicate it exists to prevent.
+   */
+  it('makes the database enforce one operation per idempotency key', () => {
+    const sql = readFileSync(
+      join(MIGRATIONS_DIR, '1759363200000-AddAuditLogsAndIdempotency.ts'),
+      'utf8',
+      // Backticks are escaped inside the migration's template literals; strip
+      // them so these assertions read as the SQL rather than as its escaping.
+    ).replaceAll('\\`', '`');
+    const up = sql.split('public async down')[0];
+    const down = sql.split('public async down')[1];
+
+    expect(up).toMatch(
+      /UNIQUE KEY `UQ_idempotency_restaurant_scope_key` \(`restaurant_id`, `scope`, `key`\)/,
+    );
+    // NOT NULL with a default, because MySQL treats NULLs as distinct in a
+    // unique index and would happily allow the duplicates this prevents.
+    expect(up).toMatch(/`restaurant_id` INT UNSIGNED NOT NULL DEFAULT 0/);
+
+    // Audit records are scoped and indexed for the queries the screen makes.
+    expect(up).toMatch(/KEY `IDX_audit_logs_restaurant_created` \(`restaurant_id`, `created_at`\)/);
+    expect(up).toMatch(/FK_audit_logs_restaurant[\s\S]*?ON DELETE CASCADE/);
+
+    // Additive only: nothing existing is touched on the way up.
+    expect(up).not.toMatch(/DROP|ALTER TABLE/);
+
+    expect(down).toMatch(/DROP TABLE `audit_logs`/);
+    expect(down).toMatch(/DROP TABLE `idempotency_keys`/);
+  });
+
+  /**
+   * The payment tables carry two unique indexes that are load-bearing: one makes
+   * a repeated webhook delivery collide instead of running twice, the other stops
+   * a single provider payment being recorded against two intents.
+   */
+  it('makes the database refuse duplicate webhooks and duplicate provider payments', () => {
+    const sql = readFileSync(
+      join(MIGRATIONS_DIR, '1759449600000-AddPaymentDomain.ts'),
+      'utf8',
+      // Backticks are escaped inside the migration's template literals.
+    ).replaceAll('\\`', '`');
+    const up = sql.split('public async down')[0];
+    const down = sql.split('public async down')[1];
+
+    expect(up).toMatch(/UNIQUE KEY `UQ_webhook_provider_event` \(`provider`, `provider_event_id`\)/);
+    expect(up).toMatch(
+      /UNIQUE KEY `UQ_payment_intents_provider_payment` \(`provider`, `provider_payment_id`\)/,
+    );
+
+    // Money in the smallest unit, never a float.
+    expect(up).toMatch(/`amount_paise` BIGINT NOT NULL/);
+    expect(up).not.toMatch(/FLOAT|DOUBLE/);
+
+    // A deleted bill must not take its payment record with it - the money still
+    // happened - so the order link is SET NULL rather than CASCADE.
+    expect(up).toMatch(/FK_payment_intents_order[\s\S]*?ON DELETE SET NULL/);
+    expect(up).toMatch(/FK_payment_intents_restaurant[\s\S]*?ON DELETE CASCADE/);
+
+    // Additive: ordering and billing are untouched, so manual settlement is safe.
+    expect(up).not.toMatch(/ALTER TABLE|DROP/);
+
+    expect(down).toMatch(/DROP TABLE `payment_intents`/);
+    expect(down).toMatch(/DROP TABLE `payment_webhook_events`/);
+    expect(down).toMatch(/DROP TABLE `payment_reconciliation_exceptions`/);
   });
 
   it('scopes restaurant tables to their restaurant and keeps QR tokens unique and case-sensitive', () => {

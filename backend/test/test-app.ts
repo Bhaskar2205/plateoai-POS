@@ -27,10 +27,15 @@ import { JwtStrategy } from 'src/modules/auth/jwt.strategy';
 import { CategoriesModule } from 'src/modules/categories/categories.module';
 import { DishesModule } from 'src/modules/dishes/dishes.module';
 import { IngredientsModule } from 'src/modules/ingredients/ingredients.module';
+import { InventoryModule } from 'src/modules/inventory/inventory.module';
 import { PublicMenuModule } from 'src/modules/public-menu/public-menu.module';
 import { RestaurantsModule } from 'src/modules/restaurants/restaurants.module';
 import { OrdersModule } from 'src/modules/orders/orders.module';
 import { ReportsModule } from 'src/modules/reports/reports.module';
+import { TaxesModule } from 'src/modules/taxes/taxes.module';
+import { AuditModule } from 'src/modules/audit/audit.module';
+import { IdempotencyModule } from 'src/modules/idempotency/idempotency.module';
+import { PaymentsModule } from 'src/modules/payments/payments.module';
 import { UploadsModule } from 'src/modules/uploads/uploads.module';
 import { TablesModule } from 'src/modules/tables/tables.module';
 import { UsersModule } from 'src/modules/users/users.module';
@@ -126,10 +131,15 @@ function testDatabaseOptions(): TypeOrmModuleOptions {
     }),
     CategoriesModule,
     IngredientsModule,
+    InventoryModule,
     DishesModule,
     PublicMenuModule,
     TablesModule,
+    AuditModule,
+    IdempotencyModule,
     OrdersModule,
+    PaymentsModule,
+    TaxesModule,
     ReportsModule,
     UploadsModule,
   ],
@@ -170,7 +180,9 @@ export async function createTestApp(
     imports: [options.throttle ? ThrottledTestAppModule : TestAppModule],
   }).compile();
 
-  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  // rawBody matches production: webhook signatures are verified over the exact
+  // bytes received, so the suite has to receive them the same way.
+  const app = moduleRef.createNestApplication<NestExpressApplication>({ rawBody: true });
   configureApp(app);
   // Same static route as production, so the suite covers the headers a browser
   // needs before it will paint a photo from another origin.

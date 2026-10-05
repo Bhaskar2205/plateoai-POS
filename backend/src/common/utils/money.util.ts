@@ -32,7 +32,7 @@ export function fromPaise(paise: number): number {
  * paisa. Twelve digits is well above any bill DECIMAL(10,2) can hold (at most
  * ten digits of paise) and well below the noise floor of that multiplication.
  */
-function roundHalfUp(value: number): number {
+export function roundHalfUp(value: number): number {
   const snapped = Number.parseFloat(value.toPrecision(12));
 
   return snapped < 0 ? -Math.round(-snapped) : Math.round(snapped);

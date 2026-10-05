@@ -137,6 +137,7 @@ export const dishSchema = z.object({
     }),
   imageUrl: optionalUrl,
   dietType: z.enum(['', 'VEG', 'NON_VEG', 'EGG', 'VEGAN']).optional(),
+  taxGroup: z.enum(['STANDARD', 'ALCOHOL', 'PACKAGED', 'EXEMPT']).optional(),
   isAvailable: z.boolean(),
   proteinGrams: optionalNumber('Protein', 10000),
   calories: optionalNumber('Calories', 20000),
@@ -153,12 +154,105 @@ export const dishSchema = z.object({
 });
 export type DishValues = z.infer<typeof dishSchema>;
 
-export const ingredientSchema = z.object({
+/**
+ * Stock.
+ *
+ * Quantities are typed into text inputs, so each one is coerced from a string
+ * and rejected rather than quietly becoming NaN. Three decimals, matching the
+ * DECIMAL(12,3) columns: a gram when the unit is a kilogram, which is as fine as
+ * a kitchen scale reads.
+ */
+const quantity = (label: string, { allowZero = false } = {}) =>
+  z
+    .string()
+    .trim()
+    .min(1, `${label} is required`)
+    .refine((value) => !Number.isNaN(Number(value)), `${label} must be a number`)
+    .refine(
+      (value) => (allowZero ? Number(value) >= 0 : Number(value) > 0),
+      allowZero ? `${label} cannot be negative` : `${label} must be more than zero`,
+    )
+    .refine((value) => Number(value) <= 9_999_999, `${label} is too large`)
+    .refine(
+      (value) => /^\d*\.?\d{0,3}$/.test(value),
+      'Use at most three decimal places',
+    );
+
+/**
+ * A cost in rupees, held as text and converted to paise at the edge.
+ *
+ * Rupees because that is what a delivery note says; paise on the wire because
+ * that is what the API stores. Two decimals, so ₹320.50 works and ₹320.505 does
+ * not.
+ */
+const rupees = z
+  .string()
+  .trim()
+  .refine((value) => value === '' || !Number.isNaN(Number(value)), 'Cost must be a number')
+  .refine((value) => value === '' || Number(value) >= 0, 'Cost cannot be negative')
+  .refine((value) => value === '' || Number(value) <= 1_000_000, 'Cost is too large')
+  .refine((value) => value === '' || /^\d*\.?\d{0,2}$/.test(value), 'Use at most two decimals');
+
+const unit = z.enum(['KG', 'GRAM', 'LITRE', 'ML', 'PIECE', 'PACK', 'BOX', 'BOTTLE']);
+
+const category = z.enum([
+  'VEGETABLES',
+  'FRUITS',
+  'DAIRY',
+  'MEAT',
+  'SEAFOOD',
+  'GRAINS',
+  'SPICES',
+  'BEVERAGES',
+  'PACKAGING',
+  'OTHER',
+]);
+
+const reason = z.enum([
+  'WASTAGE',
+  'SPOILAGE',
+  'BREAKAGE',
+  'COUNT_CORRECTION',
+  'STAFF_USE',
+  'OTHER',
+]);
+
+export const stockItemSchema = z.object({
   name: requiredText('Ingredient name', 120),
   description: optionalText(2000),
+  category,
+  unit,
+  costPerUnit: rupees,
+  minimumQuantity: quantity('Minimum', { allowZero: true }),
+  reorderQuantity: quantity('Usual order', { allowZero: true }),
+  openingQuantity: quantity('Opening stock', { allowZero: true }),
   allergenInfo: optionalText(255),
 });
-export type IngredientValues = z.infer<typeof ingredientSchema>;
+export type StockItemValues = z.input<typeof stockItemSchema>;
+
+export const stockInSchema = z.object({
+  quantity: quantity('Quantity'),
+  costPerUnit: rupees,
+  note: optionalText(255),
+});
+export type StockInValues = z.input<typeof stockInSchema>;
+
+export const wastageSchema = z.object({
+  quantity: quantity('Quantity'),
+  reason,
+  note: optionalText(255),
+});
+export type WastageValues = z.input<typeof wastageSchema>;
+
+export const stockAdjustmentSchema = z.object({
+  quantity: quantity('Quantity'),
+  // A string because it comes out of a <select>; "add" and "remove" read better
+  // on a button than a checkbox labelled "increase".
+  direction: z.enum(['add', 'remove']),
+  reason,
+  note: optionalText(255),
+});
+export type StockAdjustmentValues = z.input<typeof stockAdjustmentSchema>;
 
 export const tableSchema = z.object({
   // Mirrors the API: surrounding and repeated spaces are collapsed before checking.

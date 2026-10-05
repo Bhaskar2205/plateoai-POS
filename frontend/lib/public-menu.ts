@@ -37,6 +37,11 @@ export interface PublicDish {
   description: string | null;
   price: number;
   imageUrl: string | null;
+  /**
+   * The same photo at grid size. Always safe to use - the API returns the full
+   * URL here when the photo sits on a store that cannot resize.
+   */
+  thumbnailUrl: string | null;
   preparationTimeMinutes: number | null;
   dietType: PublicDietType | null;
   nutrition: PublicNutrition | null;

@@ -97,11 +97,45 @@ export interface Dish {
   fatGrams: number | null;
   preparationTimeMinutes: number | null;
   dietType: DietType | null;
+  taxGroup: TaxGroup;
   isAvailable: boolean;
   createdAt: string;
   updatedAt: string;
   category?: Category | null;
 }
+
+export type IngredientUnit = 'KG' | 'GRAM' | 'LITRE' | 'ML' | 'PIECE' | 'PACK' | 'BOX' | 'BOTTLE';
+
+export type IngredientCategory =
+  | 'VEGETABLES'
+  | 'FRUITS'
+  | 'DAIRY'
+  | 'MEAT'
+  | 'SEAFOOD'
+  | 'GRAINS'
+  | 'SPICES'
+  | 'BEVERAGES'
+  | 'PACKAGING'
+  | 'OTHER';
+
+export type InventoryMovementType =
+  | 'OPENING_STOCK'
+  | 'STOCK_IN'
+  | 'SALE_CONSUMPTION'
+  | 'ADJUSTMENT_INCREASE'
+  | 'ADJUSTMENT_DECREASE'
+  | 'WASTAGE'
+  | 'REVERSAL';
+
+export type StockAdjustmentReason =
+  | 'WASTAGE'
+  | 'SPOILAGE'
+  | 'BREAKAGE'
+  | 'COUNT_CORRECTION'
+  | 'STAFF_USE'
+  | 'OTHER';
+
+export type InventoryMode = 'DISABLED' | 'TRACKING' | 'STRICT';
 
 export interface Ingredient {
   id: number;
@@ -109,8 +143,90 @@ export interface Ingredient {
   name: string;
   description: string | null;
   allergenInfo: string | null;
+  category: IngredientCategory;
+  unit: IngredientUnit;
+  /** Carried as a number: the API rounds it to the three decimals the column holds. */
+  currentQuantity: number;
+  minimumQuantity: number;
+  reorderQuantity: number;
+  /** Whole paise, as a string, because the API sends BIGINT as a string. */
+  costPerUnitPaise: string;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface InventoryMovement {
+  id: number;
+  ingredientId: number;
+  ingredient?: Ingredient;
+  movementType: InventoryMovementType;
+  quantity: number;
+  unit: IngredientUnit;
+  quantityBefore: number;
+  quantityAfter: number;
+  valuePaise: string;
+  referenceType: 'ORDER' | 'STOCK_COUNT' | null;
+  referenceId: number | null;
+  reason: StockAdjustmentReason | null;
+  note: string | null;
+  businessDate: string;
+  createdBy: number | null;
+  createdAt: string;
+}
+
+export interface InventorySettings {
+  mode: InventoryMode;
+  allowNegativeStock: boolean;
+  autoDisableOutOfStockDishes: boolean;
+}
+
+export interface StockCountLine {
+  ingredientId: number;
+  ingredientName: string;
+  unit: IngredientUnit;
+  expected: number;
+  counted: number;
+  variance: number;
+  variancePaise: number;
+}
+
+export interface InventoryReportLine {
+  ingredientId: number;
+  ingredientName: string;
+  unit: IngredientUnit;
+  category: IngredientCategory;
+  consumed: number;
+  consumedPaise: number;
+  wasted: number;
+  wastedPaise: number;
+  adjusted: number;
+  adjustedPaise: number;
+  received: number;
+  receivedPaise: number;
+  onHand: number;
+  onHandPaise: number;
+}
+
+export interface InventoryReport {
+  from: string;
+  to: string;
+  lines: InventoryReportLine[];
+  totals: {
+    consumedPaise: number;
+    wastedPaise: number;
+    adjustedPaise: number;
+    receivedPaise: number;
+    onHandPaise: number;
+  };
+  lowStock: Array<{
+    ingredientId: number;
+    ingredientName: string;
+    unit: IngredientUnit;
+    onHand: number;
+    minimum: number;
+    reorderQuantity: number;
+  }>;
 }
 
 export interface DishIngredient {
@@ -121,6 +237,9 @@ export interface DishIngredient {
   allergenInfo: string | null;
   quantity: number;
   unit: string;
+  /** Null when the line cannot be costed - see `costNote` for why. */
+  costPaise: number | null;
+  costNote: string | null;
 }
 
 /**
@@ -205,12 +324,197 @@ export interface Order {
   discountReason: string | null;
   taxRate: number;
   taxAmount: number;
+  /** The restaurant's own service charge. Not a tax, and taxed itself. */
+  serviceChargeAmount: number;
+  /** The breakdown a tax invoice prints: CGST and SGST on separate lines. */
+  charges: OrderCharge[];
   total: number;
+  /** Income tax a corporate payer withholds. Never charged to the guest. */
+  tdsRate: number | null;
+  tdsAmount: number;
+  /** total - TDS: what the restaurant actually collects. */
+  amountPayable: number;
   paymentMethod: PaymentMethod | null;
   settledAt: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** What a charge on a bill is. CGST and SGST are separate lines by law. */
+export type TaxKind =
+  | 'CGST'
+  | 'SGST'
+  | 'IGST'
+  | 'UTGST'
+  | 'CESS'
+  | 'VAT'
+  | 'SERVICE_CHARGE'
+  | 'OTHER';
+
+/** Which lines a charge applies to. Alcohol sits outside GST. */
+export type TaxGroup = 'STANDARD' | 'ALCOHOL' | 'PACKAGED' | 'EXEMPT';
+
+/** One line of a bill's tax breakdown, as it was charged. */
+export interface OrderCharge {
+  name: string;
+  kind: TaxKind;
+  rate: number;
+  taxableAmount: number;
+  amount: number;
+}
+
+/** One charge in the restaurant's tax profile. */
+export interface TaxComponent {
+  id: number;
+  name: string;
+  kind: TaxKind;
+  rate: number;
+  appliesTo: TaxGroup;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+export interface SuggestedTaxProfile {
+  id: string;
+  label: string;
+  description: string;
+  totalRate: number;
+}
+
+export interface TaxProfile {
+  components: TaxComponent[];
+  suggested: SuggestedTaxProfile[];
+  standardRate: number;
+  taxNumber: string | null;
+}
+
+export type PaymentStatus =
+  | 'CREATED'
+  | 'PENDING'
+  | 'AUTHORIZED'
+  | 'CAPTURED'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'REFUNDED'
+  | 'PARTIALLY_REFUNDED';
+
+export type PaymentProviderName = 'PLATEO_INTERNAL' | 'RAZORPAY' | 'CASHFREE_FUTURE';
+
+export type PaymentProviderStatus = 'READY' | 'NOT_CONFIGURED' | 'UNAVAILABLE';
+
+/** One attempt to collect what a bill is owed. */
+export interface PaymentIntent {
+  id: number;
+  orderId: number | null;
+  orderNumber: number | null;
+  amountPaise: string;
+  /** The same amount, already formatted for reading. */
+  amount: string;
+  currency: string;
+  status: PaymentStatus;
+  provider: PaymentProviderName;
+  providerPaymentId: string | null;
+  failureReason: string | null;
+  createdAt: string;
+  capturedAt: string | null;
+}
+
+export interface PaymentSettings {
+  providers: Array<{
+    provider: PaymentProviderName;
+    status: PaymentProviderStatus;
+    label: string;
+    usable: boolean;
+  }>;
+  onlinePaymentsAvailable: boolean;
+  intentExpiryMinutes: number;
+}
+
+export interface ReconciliationException {
+  id: number;
+  issue: string;
+  detail: string;
+  paymentIntentId: number | null;
+  orderId: number | null;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+/** What an audit record describes. Only actions the system can perform. */
+export type AuditAction =
+  | 'BILL_DISCOUNTED'
+  | 'BILL_DISCOUNT_REMOVED'
+  | 'BILL_SETTLED'
+  | 'BILL_VOIDED'
+  | 'BILL_TDS_RECORDED'
+  | 'TAX_CONFIGURATION_CHANGED'
+  | 'SERVICE_CHARGE_CHANGED'
+  | 'DISH_PRICE_CHANGED'
+  | 'DISH_TAX_GROUP_CHANGED'
+  | 'DISH_AVAILABILITY_CHANGED'
+  | 'TABLE_CREATED'
+  | 'TABLE_DEACTIVATED'
+  | 'TABLE_REACTIVATED'
+  | 'QR_REGENERATED'
+  | 'KITCHEN_CODE_REGENERATED';
+
+export type AuditEntity = 'ORDER' | 'TAX_COMPONENT' | 'DISH' | 'TABLE' | 'RESTAURANT';
+
+export interface AuditLogRow {
+  id: number;
+  createdAt: string;
+  userId: number | null;
+  userName: string | null;
+  action: AuditAction;
+  entityType: AuditEntity;
+  entityId: number | null;
+  oldValue: Record<string, unknown> | null;
+  newValue: Record<string, unknown> | null;
+  reason: string | null;
+  requestId: string | null;
+  ipAddress: string | null;
+}
+
+export interface AuditLogPage {
+  rows: AuditLogRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+/** The day-end statement a till is closed on. */
+export interface DayEndTaxLine {
+  name: string;
+  kind: TaxKind;
+  rate: number;
+  taxableAmount: number;
+  amount: number;
+  bills: number;
+}
+
+export interface DayEndReport {
+  businessDate: string;
+  isClosed: boolean;
+  openBills: number;
+  openValue: number;
+  bills: number;
+  itemsSold: number;
+  gross: number;
+  discounts: number;
+  netSales: number;
+  serviceCharge: number;
+  taxes: DayEndTaxLine[];
+  taxTotal: number;
+  total: number;
+  tdsWithheld: number;
+  collected: number;
+  payments: Array<{ method: PaymentMethod; bills: number; total: number }>;
+  averageBill: number;
+  voidedBills: number;
+  voidedValue: number;
+  firstSettledAt: string | null;
+  lastSettledAt: string | null;
 }
 
 /** A table on the floor view, with whatever is happening at it right now. */
@@ -288,7 +592,16 @@ export interface Bill {
   discountReason: string | null;
   taxRate: number;
   taxAmount: number;
+  /** The restaurant's own service charge. Not a tax, and taxed itself. */
+  serviceChargeAmount: number;
+  /** The breakdown a tax invoice prints: CGST and SGST on separate lines. */
+  charges: OrderCharge[];
   total: number;
+  /** Income tax a corporate payer withholds. Never charged to the guest. */
+  tdsRate: number | null;
+  tdsAmount: number;
+  /** total - TDS: what the restaurant actually collects. */
+  amountPayable: number;
   status: OrderStatus;
   paymentMethod: PaymentMethod | null;
   settledAt: string | null;

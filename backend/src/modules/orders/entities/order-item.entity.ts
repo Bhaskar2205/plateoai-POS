@@ -9,7 +9,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { OrderItemStatus } from 'src/common/enums';
+import { OrderItemStatus, TaxGroup } from 'src/common/enums';
 import { numericTransformer } from 'src/common/transformers/numeric.transformer';
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
@@ -57,6 +57,14 @@ export class OrderItem {
   @ApiProperty({ example: 2 })
   @Column({ type: 'smallint', unsigned: true })
   quantity: number;
+
+  @ApiProperty({
+    enum: TaxGroup,
+    example: TaxGroup.STANDARD,
+    description: "The dish's tax group as it was when ordered, so reclassifying a dish never rewrites a bill.",
+  })
+  @Column({ type: 'varchar', length: 16, name: 'tax_group', default: TaxGroup.STANDARD })
+  taxGroup: TaxGroup;
 
   @ApiProperty({ example: 499, description: 'unitPrice x quantity, stored so the bill never depends on re-multiplying.' })
   @Column({ type: 'decimal', precision: 10, scale: 2, name: 'line_total', transformer: numericTransformer })

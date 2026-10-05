@@ -7,6 +7,7 @@ import {
   OrderSource,
   OrderStatus,
   PaymentMethod,
+  TaxKind,
 } from 'src/common/enums';
 
 /**
@@ -85,6 +86,24 @@ export class KotTicketSummaryDto {
   createdAt: Date;
 }
 
+/** One line of the bill's tax breakdown, as it was charged. */
+export class OrderChargeDto {
+  @ApiProperty({ example: 'CGST' })
+  name: string;
+
+  @ApiProperty({ enum: TaxKind, example: TaxKind.CGST })
+  kind: TaxKind;
+
+  @ApiProperty({ example: 2.5 })
+  rate: number;
+
+  @ApiProperty({ example: 600, description: 'What this rate was applied to.' })
+  taxableAmount: number;
+
+  @ApiProperty({ example: 15 })
+  amount: number;
+}
+
 export class OrderDto {
   @ApiProperty({ example: 41 })
   id: number;
@@ -137,14 +156,29 @@ export class OrderDto {
   @ApiProperty({ nullable: true, example: 'Regular guest' })
   discountReason: string | null;
 
-  @ApiProperty({ example: 5 })
+  @ApiProperty({ example: 5, description: 'Combined tax percentage, derived from the charges below.' })
   taxRate: number;
 
-  @ApiProperty({ example: 28.8 })
+  @ApiProperty({ example: 28.8, description: 'Every tax charge summed. Excludes any service charge.' })
   taxAmount: number;
+
+  @ApiProperty({ example: 60, description: "The restaurant's own service charge, which is itself taxed." })
+  serviceChargeAmount: number;
+
+  @ApiProperty({ type: [OrderChargeDto], description: 'The breakdown a tax invoice has to print.' })
+  charges: OrderChargeDto[];
 
   @ApiProperty({ example: 604.8 })
   total: number;
+
+  @ApiProperty({ nullable: true, example: 2, description: 'Income tax the payer withholds, if any.' })
+  tdsRate: number | null;
+
+  @ApiProperty({ example: 12 })
+  tdsAmount: number;
+
+  @ApiProperty({ example: 592.8, description: 'total - TDS. What the restaurant collects.' })
+  amountPayable: number;
 
   @ApiPropertyOptional({ enum: PaymentMethod, nullable: true })
   paymentMethod: PaymentMethod | null;
@@ -315,14 +349,29 @@ export class BillDto {
   @ApiProperty({ nullable: true, example: 'Regular guest' })
   discountReason: string | null;
 
-  @ApiProperty({ example: 5 })
+  @ApiProperty({ example: 5, description: 'Combined tax percentage, derived from the charges below.' })
   taxRate: number;
 
-  @ApiProperty({ example: 28.8 })
+  @ApiProperty({ example: 28.8, description: 'Every tax charge summed. Excludes any service charge.' })
   taxAmount: number;
+
+  @ApiProperty({ example: 60, description: "The restaurant's own service charge, which is itself taxed." })
+  serviceChargeAmount: number;
+
+  @ApiProperty({ type: [OrderChargeDto], description: 'The breakdown a tax invoice has to print.' })
+  charges: OrderChargeDto[];
 
   @ApiProperty({ example: 604.8 })
   total: number;
+
+  @ApiProperty({ nullable: true, example: 2, description: 'Income tax the payer withholds, if any.' })
+  tdsRate: number | null;
+
+  @ApiProperty({ example: 12 })
+  tdsAmount: number;
+
+  @ApiProperty({ example: 592.8, description: 'total - TDS. What the restaurant collects.' })
+  amountPayable: number;
 
   @ApiProperty({ enum: OrderStatus, example: OrderStatus.SETTLED })
   status: OrderStatus;

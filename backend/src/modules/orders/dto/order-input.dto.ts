@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsInt,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
@@ -78,6 +79,29 @@ export class CreateOrderDto extends OrderItemsDto {
 }
 
 export class AddOrderItemsDto extends OrderItemsDto {}
+
+/**
+ * Records income tax the payer withholds on this bill.
+ *
+ * Not a tax the restaurant charges: a company settling a bill deducts it and
+ * pays it to the department on the restaurant's behalf, so it reduces what is
+ * collected without changing what is owed in GST. Null clears it.
+ */
+export class SetTdsDto {
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 2,
+    minimum: 0,
+    maximum: 30,
+    description: 'Percentage withheld, on the value before GST. Null or 0 removes it.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(30)
+  rate?: number | null;
+}
 
 /** What a diner sends from a table QR menu. The table comes from the QR token. */
 export class PlaceDinerOrderDto extends OrderItemsDto {}

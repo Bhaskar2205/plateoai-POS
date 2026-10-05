@@ -71,6 +71,24 @@ export function toKotTicketSummaryDto(ticket: KotTicket): KotTicketSummaryDto {
   };
 }
 
+/**
+ * The bill's tax breakdown, in print order.
+ *
+ * Empty when the relation was not loaded, which is deliberate: a caller that did
+ * not ask for the charges gets no charges rather than a wrong total, and the
+ * summary figures on the order still say what was charged.
+ */
+const chargesOf = (order: Order) =>
+  [...(order.charges ?? [])]
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
+    .map((charge) => ({
+      name: charge.name,
+      kind: charge.kind,
+      rate: charge.rate,
+      taxableAmount: charge.taxableAmount,
+      amount: charge.amount,
+    }));
+
 export function toOrderDto(order: Order, tickets: KotTicket[] = []): OrderDto {
   const items = sortByCreation(order.items ?? []);
 
@@ -93,6 +111,11 @@ export function toOrderDto(order: Order, tickets: KotTicket[] = []): OrderDto {
     discountReason: order.discountReason,
     taxRate: order.taxRate,
     taxAmount: order.taxAmount,
+    serviceChargeAmount: order.serviceChargeAmount,
+    charges: chargesOf(order),
+    tdsRate: order.tdsRate,
+    tdsAmount: order.tdsAmount,
+    amountPayable: order.amountPayable,
     total: order.total,
     paymentMethod: order.paymentMethod,
     settledAt: order.settledAt,
@@ -185,6 +208,11 @@ export function toBillDto(order: Order, restaurant: Restaurant): BillDto {
     discountReason: order.discountReason,
     taxRate: order.taxRate,
     taxAmount: order.taxAmount,
+    serviceChargeAmount: order.serviceChargeAmount,
+    charges: chargesOf(order),
+    tdsRate: order.tdsRate,
+    tdsAmount: order.tdsAmount,
+    amountPayable: order.amountPayable,
     total: order.total,
     status: order.status,
     paymentMethod: order.paymentMethod,

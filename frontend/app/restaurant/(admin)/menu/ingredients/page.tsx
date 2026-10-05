@@ -6,15 +6,24 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useDeleteIngredient, useIngredients, useSaveIngredient } from '@/lib/queries';
-import { ingredientSchema, type IngredientValues } from '@/lib/schemas';
+import { stockItemSchema, type StockItemValues } from '@/lib/schemas';
 import type { Ingredient } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { TextAreaField, TextField } from '@/components/ui/field';
+import { SelectField, TextAreaField, TextField } from '@/components/ui/field';
 import { ConfirmDialog, Modal } from '@/components/ui/modal';
 import { EmptyState, ErrorState, FormError, TableSkeleton } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/page-header';
+import {
+  CATEGORY_LABELS,
+  CATEGORY_OPTIONS,
+  formatQuantity,
+  fromPaise,
+  UNIT_LABELS,
+  UNIT_OPTIONS,
+} from '@/components/inventory/stock-units';
+import { formatMoney } from '@/lib/format';
 
 export default function IngredientsPage() {
   // useSearchParams needs a Suspense boundary for static prerendering.
@@ -45,17 +54,40 @@ function IngredientsScreen() {
   });
   const remove = useDeleteIngredient();
 
-  const form = useForm<IngredientValues>({
-    resolver: zodResolver(ingredientSchema),
-    defaultValues: { name: '', description: '', allergenInfo: '' },
+  const form = useForm<StockItemValues>({
+    resolver: zodResolver(stockItemSchema),
+    defaultValues: {
+    name: '',
+    description: '',
+    allergenInfo: '',
+    category: 'OTHER',
+    unit: 'GRAM',
+    costPerUnit: '',
+    minimumQuantity: '0',
+    reorderQuantity: '0',
+    openingQuantity: '0',
+  },
   });
+
+  // The unit labels the quantity fields, so they have to re-render when it changes.
+  const unit = form.watch('unit');
 
   const isFormOpen = creating || editing !== null;
 
   // Fill the form before the dialog renders, so it never shows stale values.
   const openCreate = () => {
     save.reset();
-    form.reset({ name: '', description: '', allergenInfo: '' });
+    form.reset({
+    name: '',
+    description: '',
+    allergenInfo: '',
+    category: 'OTHER',
+    unit: 'GRAM',
+    costPerUnit: '',
+    minimumQuantity: '0',
+    reorderQuantity: '0',
+    openingQuantity: '0',
+  });
     setEditing(null);
     setCreating(true);
   };
@@ -66,6 +98,14 @@ function IngredientsScreen() {
       name: ingredient.name,
       description: ingredient.description ?? '',
       allergenInfo: ingredient.allergenInfo ?? '',
+      category: ingredient.category,
+      unit: ingredient.unit,
+      // Rupees in the box, paise on the wire.
+      costPerUnit: String(Number(ingredient.costPerUnitPaise) / 100),
+      minimumQuantity: String(ingredient.minimumQuantity),
+      reorderQuantity: String(ingredient.reorderQuantity),
+      // An ingredient only opens once, so editing never asks again.
+      openingQuantity: '0',
     });
     setCreating(false);
     setEditing(ingredient);
@@ -96,6 +136,14 @@ function IngredientsScreen() {
         // edit really clears it instead of leaving the old text behind.
         description: values.description ?? '',
         allergenInfo: values.allergenInfo ?? '',
+        category: values.category,
+        unit: values.unit,
+        costPerUnitPaise: Math.round(Number(values.costPerUnit || 0) * 100),
+        minimumQuantity: Number(values.minimumQuantity || 0),
+        reorderQuantity: Number(values.reorderQuantity || 0),
+        // Only on create. Editing an ingredient must never move a stock figure -
+        // that is what the inventory screen is for, and it leaves a record.
+        ...(editing ? {} : { openingQuantity: Number(values.openingQuantity || 0) }),
       },
     });
   });
@@ -162,6 +210,12 @@ function IngredientsScreen() {
                   >
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-ink">{ingredient.name}</p>
+                      <p className="mt-0.5 text-xs text-muted">
+                        {CATEGORY_LABELS[ingredient.category]} ·{' '}
+                        {formatQuantity(ingredient.currentQuantity, ingredient.unit)} in stock
+                        {Number(ingredient.costPerUnitPaise) > 0 &&
+                          ` · ${formatMoney(fromPaise(ingredient.costPerUnitPaise))} per ${UNIT_LABELS[ingredient.unit]}`}
+                      </p>
                       {ingredient.description && (
                         <p className="mt-0.5 text-xs text-muted">{ingredient.description}</p>
                       )}
@@ -224,6 +278,80 @@ function IngredientsScreen() {
             error={form.formState.errors.description?.message}
             {...form.register('description')}
           />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <SelectField
+              label="Category"
+              hint="Only used for grouping on the inventory screen."
+              error={form.formState.errors.category?.message}
+              {...form.register('category')}
+            >
+              {CATEGORY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </SelectField>
+
+            <SelectField
+              label="Counted in"
+              hint={
+                editing
+                  ? 'Changing this does not reinterpret the stock already recorded.'
+                  : 'How you buy and count it. Recipes can still be written in grams.'
+              }
+              error={form.formState.errors.unit?.message}
+              {...form.register('unit')}
+            >
+              {UNIT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </SelectField>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField
+              label={`Cost per ${UNIT_LABELS[unit]} (₹)`}
+              inputMode="decimal"
+              placeholder="320"
+              hint="What you pay. Used to work out what a dish costs to make."
+              error={form.formState.errors.costPerUnit?.message}
+              {...form.register('costPerUnit')}
+            />
+
+            {!editing && (
+              <TextField
+                label={`Opening stock (${UNIT_LABELS[unit]})`}
+                inputMode="decimal"
+                placeholder="0"
+                hint="What is on the shelf right now. Leave at 0 and record your next delivery instead."
+                error={form.formState.errors.openingQuantity?.message}
+                {...form.register('openingQuantity')}
+              />
+            )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TextField
+              label={`Warn below (${UNIT_LABELS[unit]})`}
+              inputMode="decimal"
+              placeholder="0"
+              hint="0 never warns."
+              error={form.formState.errors.minimumQuantity?.message}
+              {...form.register('minimumQuantity')}
+            />
+
+            <TextField
+              label={`Usual order (${UNIT_LABELS[unit]})`}
+              inputMode="decimal"
+              placeholder="0"
+              hint="Shown next to a low-stock warning, as a reminder of how much to buy."
+              error={form.formState.errors.reorderQuantity?.message}
+              {...form.register('reorderQuantity')}
+            />
+          </div>
 
           <TextField
             label="Allergen information"

@@ -2,11 +2,15 @@
 
 import {
   Armchair,
+  Boxes,
   Carrot,
+  CreditCard,
   LayoutDashboard,
   LogOut,
+  Percent,
   QrCode,
   Receipt,
+  ScrollText,
   Settings,
   Store,
   TrendingUp,
@@ -18,7 +22,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/cn';
-import { BILLING_ROLES, ORDER_WRITE_ROLES, TABLE_ADMIN_ROLES } from '@/lib/permissions';
+import {
+  BILLING_ROLES,
+  ORDER_WRITE_ROLES,
+  RESTAURANT_ADMIN_ROLES,
+  TABLE_ADMIN_ROLES,
+} from '@/lib/permissions';
 import type { UserRole } from '@/lib/types';
 import { Avatar, PlateoWordmark } from './brand';
 
@@ -39,6 +48,9 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: '/restaurant/dashboard', label: 'Overview', icon: LayoutDashboard },
       { href: '/restaurant/menu', label: 'Menu', icon: UtensilsCrossed },
       { href: '/restaurant/menu/ingredients', label: 'Ingredients', icon: Carrot },
+      // Stock sits next to the ingredients it counts. Owners and managers: it
+      // shows what the restaurant owns and what it paid.
+      { href: '/restaurant/inventory', label: 'Inventory', icon: Boxes, roles: BILLING_ROLES },
       // Everyone who takes orders needs the floor; the Setup tab inside is still
       // owner-only, so a waiter sees the tables without the QR controls.
       { href: '/restaurant/tables', label: 'Tables', icon: Armchair, roles: ORDER_WRITE_ROLES },
@@ -46,12 +58,17 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: '/restaurant/orders', label: 'Bills', icon: Receipt, roles: ORDER_WRITE_ROLES },
       // Money: owners and managers only, never waiters or the kitchen.
       { href: '/restaurant/reports', label: 'Reports', icon: TrendingUp, roles: BILLING_ROLES },
+      { href: '/restaurant/payments', label: 'Payments', icon: CreditCard, roles: BILLING_ROLES },
     ],
   },
   {
     title: 'Restaurant',
     items: [
       { href: '/restaurant/profile', label: 'Restaurant Profile', icon: Store },
+      // What goes on every bill: owners only, because it is what the restaurant files.
+      { href: '/restaurant/taxes', label: 'Taxes & Charges', icon: Percent, roles: RESTAURANT_ADMIN_ROLES },
+      // What the owner reads when a figure does not look right.
+      { href: '/restaurant/audit-logs', label: 'Activity Log', icon: ScrollText, roles: RESTAURANT_ADMIN_ROLES },
       { href: '/restaurant/settings', label: 'Settings', icon: Settings },
     ],
   },
