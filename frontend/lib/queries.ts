@@ -19,6 +19,8 @@ import type {
   Dish,
   DishIngredient,
   Ingredient,
+  BookingDiscount,
+  TableBooking,
   IngredientCategory,
   IngredientUnit,
   InventoryMode,
@@ -92,6 +94,7 @@ export const queryKeys = {
   inventoryStock: ['inventory', 'stock'] as const,
   inventoryMovements: ['inventory', 'movements'] as const,
   inventoryReport: ['inventory', 'report'] as const,
+  bookings: ['bookings'] as const,
 };
 
 // --- Restaurant --------------------------------------------------------------
@@ -603,6 +606,82 @@ export const useCancelOrderItem = (
     options,
   );
 
+/**
+ * Comping a line: cooked, served, not charged for.
+ *
+ * Not a discount. A discount is money taken off a sale; this was never a sale,
+ * and keeping the two apart is what lets an owner ask what the house gave away.
+ */
+export const useCompOrderItem = (
+  options?: UseMutationOptions<Order, Error, { orderId: number; itemId: number; reason: string }>,
+) =>
+  useOrderMutation(
+    ({ orderId, itemId, reason }) =>
+      apiFetch<Order>(`/restaurants/me/orders/${orderId}/items/${itemId}/nc`, {
+        method: 'POST',
+        body: { reason },
+      }),
+    ({ orderId }) => orderId,
+    options,
+  );
+
+export const useUncompOrderItem = (
+  options?: UseMutationOptions<Order, Error, { orderId: number; itemId: number }>,
+) =>
+  useOrderMutation(
+    ({ orderId, itemId }) =>
+      apiFetch<Order>(`/restaurants/me/orders/${orderId}/items/${itemId}/nc`, { method: 'DELETE' }),
+    ({ orderId }) => orderId,
+    options,
+  );
+
+/** The whole bill given away: the owner eating, a staff meal, a friend of the house. */
+export const useMarkOrderNc = (
+  options?: UseMutationOptions<Order, Error, { orderId: number; forWhom: string; reason: string }>,
+) =>
+  useOrderMutation(
+    ({ orderId, forWhom, reason }) =>
+      apiFetch<Order>(`/restaurants/me/orders/${orderId}/nc`, {
+        method: 'POST',
+        body: { forWhom, reason },
+      }),
+    ({ orderId }) => orderId,
+    options,
+  );
+
+export const useClearOrderNc = (
+  options?: UseMutationOptions<Order, Error, { orderId: number }>,
+) =>
+  useOrderMutation(
+    ({ orderId }) => apiFetch<Order>(`/restaurants/me/orders/${orderId}/nc`, { method: 'DELETE' }),
+    ({ orderId }) => orderId,
+    options,
+  );
+
+/**
+ * Erasing a no-charge bill. Owners only, and the API refuses anything that is
+ * not already marked NC, so a sale cannot be deleted by a mistyped id.
+ *
+ * Invalidates the list rather than the bill: there is no bill left to refetch.
+ */
+export const useDeleteNcOrder = (
+  options?: UseMutationOptions<void, Error, { orderId: number }>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    ...options,
+    mutationFn: ({ orderId }) =>
+      apiFetch<void>(`/restaurants/me/orders/${orderId}`, { method: 'DELETE' }),
+    onSuccess: (data, variables, context, mutation) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.orders });
+      // Every report figure the deleted bill fed into has to be asked again.
+      void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
+  });
+};
+
 /** With no ids, approves every diner request waiting at the table. */
 export const useApproveOrderItems = (
   options?: UseMutationOptions<Order, Error, { orderId: number; itemIds?: number[] }>,
@@ -1034,9 +1113,14 @@ export const useStockMovements = (ingredientId?: number, limit = 100) =>
     staleTime: 15_000,
   });
 
-export const useInventoryReport = (range?: { from?: string; to?: string }) =>
+export const useInventoryReport = (
+  range?: { from?: string; to?: string },
+  /** Off for a restaurant that does not track stock, so nothing is fetched. */
+  enabled = true,
+) =>
   useQuery({
     queryKey: [...queryKeys.inventoryReport, range?.from ?? '', range?.to ?? ''] as const,
+    enabled,
     queryFn: () => {
       const params = new URLSearchParams();
       if (range?.from) params.set('from', range.from);
@@ -1147,3 +1231,90 @@ export const useRecordStockCount = (
     },
   });
 };
+
+// --- Table bookings ----------------------------------------------------------
+
+/**
+ * Bookings made through the guest app.
+ *
+ * Polled, like the floor is. A booking arrives while nobody is looking at the
+ * screen, and a list that only changes on reload is a list somebody will miss a
+ * guest from.
+ */
+export const useBookings = (enabled = true) =>
+  useQuery({
+    queryKey: queryKeys.bookings,
+    queryFn: () => apiFetch<TableBooking[]>('/restaurants/me/bookings'),
+    enabled,
+    refetchInterval: LIVE_REFETCH_MS,
+  });
+
+export const useStaleBookings = (enabled = true) =>
+  useQuery({
+    queryKey: [...queryKeys.bookings, 'stale'] as const,
+    queryFn: () => apiFetch<TableBooking[]>('/restaurants/me/bookings/stale'),
+    enabled,
+    staleTime: 60_000,
+  });
+
+export interface BookingActionPayload {
+  id: number;
+  /** `confirm` may name a table; everything else may carry a note. */
+  tableId?: number;
+  note?: string;
+  /**
+   * `confirm` only. Left out, the booking keeps whatever discount it arrived
+   * with; `null` takes one back. The two cannot be collapsed, or staff could
+   * never clear a discount the app promised.
+   */
+  discount?: BookingDiscount | null;
+}
+
+/**
+ * Every booking action is the same shape - an id, maybe a note - so one hook
+ * covers all of them and the page names the action rather than repeating the
+ * plumbing six times.
+ */
+const useBookingAction = (
+  action: 'confirm' | 'decline' | 'seat' | 'complete' | 'no-show' | 'cancel',
+  options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, ...body }: BookingActionPayload) =>
+      apiFetch<TableBooking>(`/restaurants/me/bookings/${id}/${action}`, {
+        method: 'POST',
+        body,
+      }),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.bookings });
+      options?.onSuccess?.(...args);
+    },
+  });
+};
+
+export const useConfirmBooking = (
+  options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
+) => useBookingAction('confirm', options);
+
+export const useDeclineBooking = (
+  options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
+) => useBookingAction('decline', options);
+
+export const useSeatBooking = (
+  options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
+) => useBookingAction('seat', options);
+
+export const useCompleteBooking = (
+  options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
+) => useBookingAction('complete', options);
+
+export const useNoShowBooking = (
+  options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
+) => useBookingAction('no-show', options);
+
+export const useCancelBooking = (
+  options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
+) => useBookingAction('cancel', options);

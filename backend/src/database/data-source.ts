@@ -10,6 +10,7 @@ import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.entity';
 import { Ingredient } from 'src/modules/ingredients/entities/ingredient.entity';
 import { InventoryMovement } from 'src/modules/inventory/entities/inventory-movement.entity';
+import { TableBooking } from 'src/modules/bookings/entities/table-booking.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
 import { Order } from 'src/modules/orders/entities/order.entity';
 import { OrderItem } from 'src/modules/orders/entities/order-item.entity';
@@ -39,6 +40,7 @@ export const entities = [
   Ingredient,
   DishIngredient,
   InventoryMovement,
+  TableBooking,
   RestaurantTable,
   Order,
   KotTicket,

@@ -141,7 +141,18 @@ describe('installShutdownHandlers', () => {
  * the process the signal is delivered to.
  */
 describe('the production start script', () => {
-  it('execs node, so the signal reaches it rather than a wrapper shell', () => {
-    expect(scripts['start:prod']).toBe('exec node dist/main.js');
+  it('execs node last, so the signal reaches it rather than a wrapper shell', () => {
+    // Asserted as "ends with", not as the whole string. The script also runs
+    // pending migrations before booting, and more steps may be added in front of
+    // node later; what must never change is that `exec node` is the final
+    // command, because only then is node the process the signal is delivered to.
+    expect(scripts['start:prod']).toMatch(/(^|&&\s*)exec node dist\/main\.js$/);
+  });
+
+  it('applies pending migrations before the API serves anything', () => {
+    // Four migrations once shipped to a database that had seen none of them. A
+    // server that boots against a schema it does not match answers every request
+    // with an error, so the migration runs first and a failure stops the boot.
+    expect(scripts['start:prod']).toMatch(/migration:run\s*&&/);
   });
 });

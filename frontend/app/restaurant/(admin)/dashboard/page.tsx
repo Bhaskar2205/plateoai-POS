@@ -8,26 +8,53 @@ import {
   ExternalLink,
   LayoutList,
   Plus,
-  Receipt,
   UtensilsCrossed,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
-import { useCategories, useDishes, useIngredients, useRestaurantStats } from '@/lib/queries';
-import { MenuPreview } from '@/components/dashboard/menu-preview';
+import { canBill, canTakeOrders } from '@/lib/permissions';
+import {
+  useBookings,
+  useDishes,
+  useFloor,
+  useInventoryReport,
+  useInventorySettings,
+  useItemsReport,
+  useRestaurantStats,
+  useSalesReport,
+} from '@/lib/queries';
+import { today } from '@/components/reports/report-shell';
+import { HowTheyPaid } from '@/components/dashboard/how-they-paid';
+import { NeedsYou } from '@/components/dashboard/needs-you';
 import { QuickAction } from '@/components/dashboard/quick-action';
-import { RecentActivity } from '@/components/dashboard/recent-activity';
-import { SummaryCard } from '@/components/dashboard/summary-card';
+import { SellingToday } from '@/components/dashboard/selling-today';
+import { ServiceNow } from '@/components/dashboard/service-now';
+import { TodayHero } from '@/components/dashboard/today-hero';
 import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ErrorState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
 
+/**
+ * The owner's home screen.
+ *
+ * Ordered by what somebody actually opens it to find out: what we took today,
+ * what is happening in the room, what needs answering, what is selling. The menu
+ * counts that used to lead the page - dishes, categories, ingredients - are true
+ * but they are setup figures, and an owner learns them once and never looks
+ * again, so they sit at the bottom as a strip.
+ *
+ * Money is owner-and-manager only, exactly as Reports is. A waiter who reaches
+ * this page gets the parts of it they can act on and none of the takings.
+ */
 function greeting(date = new Date()): string {
   const hour = date.getHours();
   if (hour < 12) return 'Good morning';
   if (hour < 17) return 'Good afternoon';
+
   return 'Good evening';
 }
 
@@ -35,39 +62,94 @@ export default function DashboardPage() {
   const { session } = useAuth();
   const stats = useRestaurantStats();
   const dishes = useDishes();
-  const categories = useCategories();
-  const ingredients = useIngredients();
+  const floor = useFloor();
+
+  const seesMoney = canBill(session?.user.role);
+  const range = { from: today(), to: today() };
+
+  const sales = useSalesReport(range, seesMoney);
+  const items = useItemsReport(range, seesMoney);
+
+  // Both arrive from the guest app rather than the floor. Anyone who may take an
+  // order may answer them, so these are not gated on seeing money.
+  const bookings = useBookings(canTakeOrders(session?.user.role));
+
+  const inventorySettings = useInventorySettings(seesMoney);
+  const inventoryOn = (inventorySettings.data?.mode ?? 'DISABLED') !== 'DISABLED';
+  // Only fetched once stock tracking is on, so a restaurant that never opened
+  // the inventory screen does not pay for a report it would ignore.
+  const inventory = useInventoryReport(range, inventoryOn);
 
   // The admin shell only renders this page once the session is loaded.
   if (!session) return null;
 
   const firstName = session.user.name.split(/\s+/)[0] || session.user.name;
-  const data = stats.data;
-  const statsLoading = stats.isPending;
-
-  const unavailableDishes = data ? data.totalDishes - data.availableDishes : 0;
-  const allergenIngredients = ingredients.data?.filter((ingredient) => ingredient.allergenInfo).length;
-
-  const activityLoading = dishes.isPending || categories.isPending || ingredients.isPending;
-  const activityError = dishes.error ?? categories.error ?? ingredients.error;
+  const openBills = floor.data?.filter((table) => table.orderId !== null).length;
 
   return (
     <div className="space-y-8">
-      <section className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0 space-y-1.5">
-          <h1 className="text-2xl font-semibold tracking-tight text-ink text-balance sm:text-[1.75rem]">
+      {seesMoney ? (
+        sales.isError ? (
+          <Card>
+            <ErrorState error={sales.error} onRetry={() => void sales.refetch()} />
+          </Card>
+        ) : (
+          <TodayHero
+            restaurantName={session.restaurant.name}
+            greeting={`${greeting()}, ${firstName}`}
+            sales={sales.data}
+            loading={sales.isPending}
+            openBills={openBills}
+          />
+        )
+      ) : (
+        <header className="space-y-1.5">
+          <h1 className="text-2xl font-semibold tracking-tight text-ink text-balance">
             {greeting()}, {firstName}
           </h1>
-          <p className="max-w-2xl text-sm text-muted">
-            Here’s how <span className="font-medium text-ink">{session.restaurant.name}</span> looks today — keep
-            dishes, prices and availability up to date so diners always see an accurate menu.
+          <p className="text-sm text-muted">
+            Here is what is happening at{' '}
+            <span className="font-medium text-ink">{session.restaurant.name}</span> right now.
           </p>
-        </div>
-      </section>
+        </header>
+      )}
 
-      <section aria-labelledby="summary-heading">
-        <h2 id="summary-heading" className="sr-only">
-          Summary
+      <ServiceNow floor={floor.data} loading={floor.isPending} />
+
+      {/* Two columns only when there is something to put in both. A waiter sees
+          no takings, so the sales half is absent and the rest runs full width -
+          putting the four quick actions in a third of the page crushed them into
+          unreadable slivers. */}
+      {seesMoney ? (
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+          <SellingToday items={items.data} loading={items.isPending} />
+
+          <div className="space-y-6">
+            <NeedsYou
+              floor={floor.data}
+              dishes={dishes.data}
+              inventory={inventory.data}
+              inventoryOn={inventoryOn}
+              bookings={bookings.data}
+            />
+            <HowTheyPaid payments={sales.data?.payments} loading={sales.isPending} />
+          </div>
+        </div>
+      ) : (
+        <NeedsYou
+          floor={floor.data}
+          dishes={dishes.data}
+          inventory={inventory.data}
+          inventoryOn={inventoryOn}
+          bookings={bookings.data}
+        />
+      )}
+
+      <QuickActions slug={session.restaurant.slug} />
+
+      <section aria-labelledby="menu-heading" className="space-y-3">
+        <h2 id="menu-heading" className="text-sm font-semibold text-ink">
+          Your menu
         </h2>
 
         {stats.isError ? (
@@ -75,122 +157,127 @@ export default function DashboardPage() {
             <ErrorState error={stats.error} onRetry={() => void stats.refetch()} />
           </Card>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <SummaryCard
-              label="Total dishes"
-              value={data?.totalDishes ?? 0}
-              hint={data ? (unavailableDishes > 0 ? `${unavailableDishes} marked unavailable` : 'All on the menu') : undefined}
-              icon={ChefHat}
-              tone="brand"
-              loading={statsLoading}
-              href="/restaurant/menu"
-            />
-            <SummaryCard
-              label="Available dishes"
-              value={data?.availableDishes ?? 0}
-              hint={
-                data && data.totalDishes > 0
-                  ? `${Math.round((data.availableDishes / data.totalDishes) * 100)}% of your menu`
-                  : 'No dishes yet'
-              }
-              progress={data && data.totalDishes > 0 ? data.availableDishes / data.totalDishes : undefined}
-              icon={CheckCircle2}
-              tone="brand"
-              loading={statsLoading}
-              href="/restaurant/menu"
-            />
-            <SummaryCard
-              label="Categories"
-              value={data?.totalCategories ?? 0}
-              hint={data ? `${data.activeCategories} visible to diners` : undefined}
-              icon={LayoutList}
-              tone="saffron"
-              loading={statsLoading}
-              href="/restaurant/menu/categories"
-            />
-            <SummaryCard
-              label="Ingredients"
-              value={data?.totalIngredients ?? 0}
-              hint={
-                allergenIngredients === undefined
-                  ? undefined
-                  : allergenIngredients > 0
-                    ? `${allergenIngredients} with allergen notes`
-                    : 'No allergen notes yet'
-              }
-              icon={Carrot}
-              tone="saffron"
-              loading={statsLoading}
-              href="/restaurant/menu/ingredients"
-            />
-            <SummaryCard
-              label="Pending orders"
-              value={null}
-              icon={Receipt}
-              unavailableReason="Arrives with QR table ordering."
-            />
-          </div>
+          <Card>
+            <dl className="grid divide-y divide-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <Count
+                label="Dishes"
+                value={stats.data?.totalDishes}
+                hint={
+                  stats.data
+                    ? stats.data.totalDishes === stats.data.availableDishes
+                      ? 'All on the menu'
+                      : `${stats.data.totalDishes - stats.data.availableDishes} hidden`
+                    : undefined
+                }
+                icon={ChefHat}
+                href="/restaurant/menu"
+                loading={stats.isPending}
+              />
+              <Count
+                label="Sections"
+                value={stats.data?.totalCategories}
+                hint={stats.data ? `${stats.data.activeCategories} visible to diners` : undefined}
+                icon={LayoutList}
+                href="/restaurant/menu/categories"
+                loading={stats.isPending}
+              />
+              <Count
+                label="Ingredients"
+                value={stats.data?.totalIngredients}
+                hint={
+                  stats.data?.totalIngredients === 0
+                    ? 'None added yet'
+                    : 'Reused across dishes'
+                }
+                icon={Carrot}
+                href="/restaurant/menu/ingredients"
+                loading={stats.isPending}
+              />
+            </dl>
+          </Card>
         )}
       </section>
-
-      <section aria-labelledby="actions-heading" className="space-y-3">
-        <h2 id="actions-heading" className="text-sm font-semibold text-ink">
-          Quick actions
-        </h2>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <QuickAction
-            primary
-            href="/restaurant/menu?new=dish"
-            title="Add a dish"
-            description="Name and price is enough to start."
-            icon={Plus}
-          />
-          <QuickAction
-            href="/restaurant/menu"
-            title="Edit the menu"
-            description="Prices, photos, sections and what's in each dish."
-            icon={LayoutList}
-          />
-          <QuickAction
-            href="/restaurant/menu/ingredients?new=1"
-            title="Add an ingredient"
-            description="Reusable across dishes, with allergen notes."
-            icon={Carrot}
-          />
-          <QuickAction
-            href={`/menu/${session.restaurant.slug}` as Route}
-            external
-            title="View Menu"
-            description="See your menu exactly as diners do."
-            icon={UtensilsCrossed}
-          />
-        </div>
-      </section>
-
-      <div className="grid grid-cols-[minmax(0,1fr)] items-stretch gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <MenuPreview
-          dishes={dishes.data}
-          loading={dishes.isPending}
-          error={dishes.error}
-          onRetry={() => void dishes.refetch()}
-        />
-        <RecentActivity
-          dishes={dishes.data}
-          categories={categories.data}
-          ingredients={ingredients.data}
-          loading={activityLoading}
-          error={activityError}
-          onRetry={() => {
-            void dishes.refetch();
-            void categories.refetch();
-            void ingredients.refetch();
-          }}
-        />
-      </div>
 
       {/* Copyable, so it uses the permanent slug that survives a rename. */}
       <PublicMenuLink slug={session.restaurant.publicSlug} />
     </div>
+  );
+}
+
+function QuickActions({ slug }: { slug: string }) {
+  return (
+    <section aria-labelledby="actions-heading" className="space-y-3">
+      <h2 id="actions-heading" className="text-sm font-semibold text-ink">
+        Quick actions
+      </h2>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <QuickAction
+          primary
+          href="/restaurant/menu?new=dish"
+          title="Add a dish"
+          description="Name and price is enough to start."
+          icon={Plus}
+        />
+        <QuickAction
+          href="/restaurant/menu"
+          title="Edit the menu"
+          description="Prices, photos, sections and what's in each dish."
+          icon={LayoutList}
+        />
+        <QuickAction
+          href="/restaurant/menu/ingredients?new=1"
+          title="Add an ingredient"
+          description="Reusable across dishes, with allergen notes."
+          icon={Carrot}
+        />
+        <QuickAction
+          href={`/menu/${slug}` as Route}
+          external
+          title="View menu"
+          description="See your menu exactly as diners do."
+          icon={UtensilsCrossed}
+        />
+      </div>
+    </section>
+  );
+}
+
+/** One setup figure. Three to a card, because none of them earns a card alone. */
+function Count({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  href,
+  loading,
+}: {
+  label: string;
+  value: number | undefined;
+  hint: string | undefined;
+  icon: LucideIcon;
+  href: Route;
+  loading: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex items-center gap-3 p-4 transition-colors hover:bg-ground focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+    >
+      <span aria-hidden className="grid size-9 shrink-0 place-items-center rounded-xl bg-ground text-muted">
+        <Icon className="size-4" />
+      </span>
+      <div className="min-w-0">
+        <dt className="text-xs text-muted">{label}</dt>
+        <dd className="flex items-baseline gap-2">
+          {loading || value === undefined ? (
+            <Skeleton className="mt-1 h-6 w-10" />
+          ) : (
+            <span className="text-xl font-semibold text-ink">{value}</span>
+          )}
+          {hint && <span className="truncate text-xs text-muted">{hint}</span>}
+        </dd>
+      </div>
+    </Link>
   );
 }
 

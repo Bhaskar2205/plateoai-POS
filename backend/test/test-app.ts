@@ -28,6 +28,8 @@ import { CategoriesModule } from 'src/modules/categories/categories.module';
 import { DishesModule } from 'src/modules/dishes/dishes.module';
 import { IngredientsModule } from 'src/modules/ingredients/ingredients.module';
 import { InventoryModule } from 'src/modules/inventory/inventory.module';
+import { BookingsModule } from 'src/modules/bookings/bookings.module';
+import { PlatformModule } from 'src/modules/platform/platform.module';
 import { PublicMenuModule } from 'src/modules/public-menu/public-menu.module';
 import { RestaurantsModule } from 'src/modules/restaurants/restaurants.module';
 import { OrdersModule } from 'src/modules/orders/orders.module';
@@ -39,6 +41,9 @@ import { PaymentsModule } from 'src/modules/payments/payments.module';
 import { UploadsModule } from 'src/modules/uploads/uploads.module';
 import { TablesModule } from 'src/modules/tables/tables.module';
 import { UsersModule } from 'src/modules/users/users.module';
+import { User } from 'src/modules/users/entities/user.entity';
+import { UserRole } from 'src/common/enums';
+import { hashPassword } from 'src/common/security/password';
 
 /**
  * Test harness.
@@ -132,6 +137,8 @@ function testDatabaseOptions(): TypeOrmModuleOptions {
     CategoriesModule,
     IngredientsModule,
     InventoryModule,
+    BookingsModule,
+    PlatformModule,
     DishesModule,
     PublicMenuModule,
     TablesModule,
@@ -211,6 +218,54 @@ export interface RegisteredOwner {
 }
 
 /** Registers an owner + restaurant and returns everything a test needs. */
+/**
+ * A Plateo administrator token for this app, created once and reused.
+ *
+ * There is no public registration any more: a restaurant is opened by somebody
+ * at Plateo. So the helper every test leans on has to go through that path -
+ * which is the right thing anyway, because it means 130 call sites exercise the
+ * real endpoint rather than a shortcut that could drift away from it.
+ *
+ * The admin row is inserted directly rather than seeded through the environment:
+ * the bootstrap only runs when no administrator exists, and suites share a
+ * process.
+ */
+const platformTokens = new WeakMap<INestApplication, Promise<string>>();
+
+export function platformAdminToken(app: INestApplication): Promise<string> {
+  const existing = platformTokens.get(app);
+  if (existing) return existing;
+
+  const created = (async () => {
+    const email = `platform-${Math.random().toString(36).slice(2, 8)}@plateo.test`;
+    const password = 'PlatformAdmin123!';
+
+    const users = app.get(DataSource).getRepository(User);
+    await users.save(
+      users.create({
+        name: 'Test platform admin',
+        email,
+        passwordHash: await hashPassword(password),
+        role: UserRole.SUPER_ADMIN,
+      }),
+    );
+
+    const login = await api(app).post('/auth/platform/login').send({ email, password }).expect(200);
+
+    return login.body.accessToken as string;
+  })();
+
+  platformTokens.set(app, created);
+
+  return created;
+}
+
+/**
+ * Opens a restaurant with an owner, the way Plateo now does it.
+ *
+ * Signature unchanged, so every existing test reads the same; only the path
+ * underneath moved from `/auth/register` to the platform endpoint.
+ */
 export async function registerOwner(
   app: INestApplication,
   overrides: Partial<{
@@ -222,22 +277,36 @@ export async function registerOwner(
   }> = {},
 ): Promise<RegisteredOwner> {
   const suffix = Math.random().toString(36).slice(2, 8);
-  const payload = {
-    name: overrides.name ?? 'Test Owner',
-    email: overrides.email ?? `owner-${suffix}@example.com`,
-    password: overrides.password ?? 'StrongPassword123!',
-    restaurantName: overrides.restaurantName ?? `Test Kitchen ${suffix}`,
-    address: overrides.address ?? 'Jaipur, Rajasthan',
-  };
+  const email = overrides.email ?? `owner-${suffix}@example.com`;
+  const password = overrides.password ?? 'StrongPassword123!';
 
-  const response = await api(app).post('/auth/register').send(payload).expect(201);
+  const token = await platformAdminToken(app);
+
+  const created = await api(app)
+    .post('/platform/restaurants')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      restaurantName: overrides.restaurantName ?? `Test Kitchen ${suffix}`,
+      address: overrides.address ?? 'Jaipur, Rajasthan',
+      ownerName: overrides.name ?? 'Test Owner',
+      ownerEmail: email,
+      ownerPassword: password,
+    })
+    .expect(201);
+
+  // The owner signs in for themselves, exactly as a real one would with the
+  // credentials they were handed.
+  const login = await api(app)
+    .post('/auth/login')
+    .send({ email, password, restaurantId: created.body.id })
+    .expect(200);
 
   return {
-    accessToken: response.body.accessToken,
-    userId: response.body.user.id,
-    restaurantId: response.body.restaurant.id,
-    email: payload.email,
-    password: payload.password,
+    accessToken: login.body.accessToken,
+    userId: login.body.user.id,
+    restaurantId: created.body.id,
+    email,
+    password,
   };
 }
 

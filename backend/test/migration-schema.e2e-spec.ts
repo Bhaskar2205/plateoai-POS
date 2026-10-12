@@ -183,6 +183,7 @@ describe('InitSchema migration matches the entities', () => {
       'restaurant_tax_components',
       'restaurant_users',
       'restaurants',
+      'table_bookings',
       'users',
     ]);
   });

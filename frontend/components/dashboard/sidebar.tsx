@@ -2,6 +2,7 @@
 
 import {
   Armchair,
+  CalendarCheck,
   Boxes,
   Carrot,
   CreditCard,
@@ -35,8 +36,6 @@ interface NavItem {
   href: Route;
   label: string;
   icon: LucideIcon;
-  /** Shown for sections that are not built yet, so the item never looks broken. */
-  badge?: string;
   /** Only these roles see the item; omitted means everyone. */
   roles?: UserRole[];
 }
@@ -56,6 +55,9 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       { href: '/restaurant/tables', label: 'Tables', icon: Armchair, roles: ORDER_WRITE_ROLES },
       { href: '/restaurant/qr-codes', label: 'QR Codes', icon: QrCode, roles: TABLE_ADMIN_ROLES },
       { href: '/restaurant/orders', label: 'Bills', icon: Receipt, roles: ORDER_WRITE_ROLES },
+      // Arrives from the Plateo guest app rather than from the floor, and is
+      // answered by whoever takes orders.
+      { href: '/restaurant/bookings', label: 'Bookings', icon: CalendarCheck, roles: ORDER_WRITE_ROLES },
       // Money: owners and managers only, never waiters or the kitchen.
       { href: '/restaurant/reports', label: 'Reports', icon: TrendingUp, roles: BILLING_ROLES },
       { href: '/restaurant/payments', label: 'Payments', icon: CreditCard, roles: BILLING_ROLES },
@@ -142,11 +144,6 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                         aria-hidden
                       />
                       <span className="flex-1 truncate">{item.label}</span>
-                      {item.badge && (
-                        <span className="rounded-full bg-saffron-50 px-1.5 py-px text-[10px] font-semibold tracking-wide text-saffron-600 uppercase ring-1 ring-saffron-100">
-                          {item.badge}
-                        </span>
-                      )}
                     </Link>
                   </li>
                 );

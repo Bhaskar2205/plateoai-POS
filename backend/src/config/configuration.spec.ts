@@ -36,6 +36,7 @@ function productionConfig(overrides: (config: AppConfig) => void = () => undefin
       ssl: { enabled: true, ca: CA, rejectUnauthorized: true },
     },
     jwt: { secret: 'j'.repeat(64), expiresIn: '1d' },
+    platformAdmin: { email: '', password: '' },
     throttle: {
       loginTtlSeconds: 60,
       loginLimit: 5,
@@ -151,6 +152,108 @@ describe('configuration', () => {
 
   describe('validateConfig', () => {
     it('accepts the recommended production setup', () => {
+      expect(() => validateConfig(productionConfig())).not.toThrow();
+    });
+
+    it('rejects a plain-http browser origin in production', () => {
+      // A session token on café wifi, in clear text.
+      expectInvalid(
+        productionConfig((c) => (c.corsOrigins = ['https://app.plateoai.in', 'http://app.plateoai.in'])),
+        /CORS_ORIGINS must be https/,
+      );
+    });
+
+    it('allows a plain-http origin outside production', () => {
+      expect(() =>
+        validateConfig(
+          productionConfig((c) => ((c.corsOrigins = ['http://localhost:3000']), (c.nodeEnv = 'development'))),
+        ),
+      ).not.toThrow();
+    });
+
+    it('refuses a weak seed password for the first administrator', () => {
+      // It creates an account that can open, suspend and reset every restaurant,
+      // and nothing prompts whoever types it to make it strong.
+      expectInvalid(
+        productionConfig((c) => (c.platformAdmin = { email: 'a@b.test', password: 'short1A' })),
+        /PLATFORM_ADMIN_PASSWORD must be at least 12/,
+      );
+      expectInvalid(
+        productionConfig((c) => (c.platformAdmin = { email: 'a@b.test', password: 'alllowercase1' })),
+        /uppercase letter/,
+      );
+      expectInvalid(
+        productionConfig((c) => (c.platformAdmin = { email: 'a@b.test', password: 'NoDigitsAtAll' })),
+        /must include a number/,
+      );
+    });
+
+    it('refuses a seed password with no address to seed', () => {
+      expectInvalid(
+        productionConfig((c) => (c.platformAdmin = { email: '', password: 'StrongEnough123' })),
+        /without PLATFORM_ADMIN_EMAIL/,
+      );
+    });
+
+    it('accepts a strong seed, and accepts none at all', () => {
+      expect(() =>
+        validateConfig(
+          productionConfig((c) => (c.platformAdmin = { email: 'a@b.test', password: 'StrongEnough123' })),
+        ),
+      ).not.toThrow();
+      expect(() => validateConfig(productionConfig())).not.toThrow();
+    });
+
+    it('refuses half-configured Cloudflare Images', () => {
+      // The dangerous state: the storage picker reads it as "off" and writes to
+      // the container disk, which the next deploy wipes.
+      expectInvalid(
+        productionConfig(
+          (c) =>
+            (c.uploads.cloudflare = {
+              accountId: 'acc',
+              token: 'tok',
+              accountHash: '',
+              thumbnailVariant: 'thumb',
+              fullVariant: 'full',
+            }),
+        ),
+        /Cloudflare Images needs/,
+      );
+    });
+
+    it('tolerates half-configured Cloudflare outside production, where somebody is mid-setup', () => {
+      expect(() =>
+        validateConfig(
+          productionConfig((c) => {
+            c.nodeEnv = 'development';
+            c.uploads.cloudflare = {
+              accountId: 'acc',
+              token: 'tok',
+              accountHash: '',
+              thumbnailVariant: 'thumb',
+              fullVariant: 'full',
+            };
+          }),
+        ),
+      ).not.toThrow();
+    });
+
+    it('accepts Cloudflare fully set, or not set at all', () => {
+      expect(() =>
+        validateConfig(
+          productionConfig(
+            (c) =>
+              (c.uploads.cloudflare = {
+                accountId: 'acc',
+                token: 'tok',
+                accountHash: 'hash',
+                thumbnailVariant: 'thumb',
+                fullVariant: 'full',
+              }),
+          ),
+        ),
+      ).not.toThrow();
       expect(() => validateConfig(productionConfig())).not.toThrow();
     });
 

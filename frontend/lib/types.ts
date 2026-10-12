@@ -178,7 +178,6 @@ export interface InventoryMovement {
 export interface InventorySettings {
   mode: InventoryMode;
   allowNegativeStock: boolean;
-  autoDisableOutOfStockDishes: boolean;
 }
 
 export interface StockCountLine {
@@ -292,6 +291,9 @@ export interface OrderItem {
   /** False once the kitchen has it: cancel instead of changing it. */
   editable: boolean;
   cancelledReason: string | null;
+  /** Comped: cooked and served, not charged for. Still came out of stock. */
+  isNonChargeable: boolean;
+  ncReason: string | null;
   createdAt: string;
 }
 
@@ -322,6 +324,11 @@ export interface Order {
   discountValue: number | null;
   discountAmount: number;
   discountReason: string | null;
+  /** The whole bill was given away. Settles, but is never revenue. */
+  isNonChargeable: boolean;
+  ncReason: string | null;
+  /** Who ate - not who authorised it. */
+  ncFor: string | null;
   taxRate: number;
   taxAmount: number;
   /** The restaurant's own service charge. Not a tax, and taxed itself. */
@@ -513,6 +520,10 @@ export interface DayEndReport {
   averageBill: number;
   voidedBills: number;
   voidedValue: number;
+  /** Bills given away. Never counted as sales. */
+  ncBills: number;
+  /** What those giveaways were worth. */
+  ncValue: number;
   firstSettledAt: string | null;
   lastSettledAt: string | null;
 }
@@ -653,6 +664,10 @@ export interface SalesSummary {
   openBills: number;
   voidedBills: number;
   voidedValue: number;
+  /** Bills given away. Never counted as sales. */
+  ncBills: number;
+  /** What those giveaways were worth. */
+  ncValue: number;
   payments: PaymentBreakdown[];
   daily: DailySales[];
   /** Empty for ranges longer than 31 days, where an hourly average says nothing. */
@@ -752,3 +767,49 @@ export interface AdjustmentsReport {
   cancelledItems: CancelledItemRow[];
 }
 
+// --- Table bookings ----------------------------------------------------------
+
+export type TableBookingStatus =
+  | 'REQUESTED'
+  | 'CONFIRMED'
+  | 'SEATED'
+  | 'COMPLETED'
+  | 'DECLINED'
+  | 'CANCELLED'
+  | 'NO_SHOW';
+
+/** A discount as it is set on a booking: all three parts, or none at all. */
+export interface BookingDiscount {
+  type: DiscountType;
+  value: number;
+  reason: string;
+}
+
+export interface TableBooking {
+  id: number;
+  restaurantId: number;
+  referenceNumber: number;
+  businessDate: string;
+  guestName: string;
+  guestPhone: string;
+  guestEmail: string | null;
+  partySize: number;
+  bookedFor: string;
+  status: TableBookingStatus;
+  tableId: number | null;
+  table: { id: number; name: string } | null;
+  /**
+   * A discount the bill should carry, if this party is seated. An intention, not
+   * money - there is no amount until there is a subtotal to take it off.
+   */
+  discountType: DiscountType | null;
+  discountValue: number | null;
+  discountReason: string | null;
+  guestNote: string | null;
+  restaurantNote: string | null;
+  respondedAt: string | null;
+  seatedAt: string | null;
+  handledByUserId: number | null;
+  createdAt: string;
+  updatedAt: string;
+}

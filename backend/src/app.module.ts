@@ -14,6 +14,8 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { DishesModule } from './modules/dishes/dishes.module';
 import { IngredientsModule } from './modules/ingredients/ingredients.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { BookingsModule } from './modules/bookings/bookings.module';
+import { PlatformModule } from './modules/platform/platform.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TaxesModule } from './modules/taxes/taxes.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -56,6 +58,8 @@ import { UsersModule } from './modules/users/users.module';
     CategoriesModule,
     IngredientsModule,
     InventoryModule,
+    BookingsModule,
+    PlatformModule,
     DishesModule,
     PublicMenuModule,
     TablesModule,

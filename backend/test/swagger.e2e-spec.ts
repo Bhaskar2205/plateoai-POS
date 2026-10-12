@@ -33,7 +33,8 @@ describe('OpenAPI document', () => {
   });
 
   it.each([
-    ['/auth/register', 'post'],
+    ['/auth/platform/login', 'post'],
+    ['/platform/restaurants', 'post'],
     ['/auth/login', 'post'],
     ['/auth/me', 'get'],
     ['/auth/logout', 'post'],
@@ -72,9 +73,36 @@ describe('OpenAPI document', () => {
     expect(document.paths['/restaurants/me'].get!.security).toEqual([{ 'access-token': [] }]);
   });
 
-  it('leaves register and login unauthenticated', () => {
-    expect(document.paths['/auth/register'].post!.security).toBeUndefined();
+  it('leaves the two sign-in routes unauthenticated, and nothing else', () => {
     expect(document.paths['/auth/login'].post!.security).toBeUndefined();
+    expect(document.paths['/auth/platform/login'].post!.security).toBeUndefined();
+  });
+
+  it('no longer documents a public registration endpoint', () => {
+    // Registration is gone: a restaurant exists because somebody at Plateo opened
+    // the account. Swagger advertising it would be advertising a door that is
+    // bricked up.
+    expect(document.paths['/auth/register']).toBeUndefined();
+  });
+
+  it('requires the bearer token on every platform route', () => {
+    const platform = Object.entries(document.paths).filter(([path]) =>
+      path.startsWith('/platform'),
+    );
+
+    expect(platform.length).toBeGreaterThan(0);
+
+    for (const [path, item] of platform) {
+      for (const [method, operation] of Object.entries(item)) {
+        if (!['get', 'post', 'patch', 'put', 'delete'].includes(method)) continue;
+
+        expect({ path, method, security: (operation as { security?: unknown }).security }).toEqual({
+          path,
+          method,
+          security: [{ 'access-token': [] }],
+        });
+      }
+    }
   });
 
   it('documents error responses on protected endpoints', () => {
@@ -92,6 +120,6 @@ describe('OpenAPI document', () => {
   it('describes request bodies for the write endpoints', () => {
     expect(document.paths['/dishes'].post!.requestBody).toBeDefined();
     expect(document.components!.schemas!.CreateDishDto).toBeDefined();
-    expect(document.components!.schemas!.RegisterDto).toBeDefined();
+    expect(document.components!.schemas!.CreateRestaurantAccountDto).toBeDefined();
   });
 });

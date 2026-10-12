@@ -65,6 +65,14 @@ export interface AppConfig {
     secret: string;
     expiresIn: string;
   };
+  /**
+   * Seeds the first Plateo administrator when none exists. A seed, not a config:
+   * remove both once the account is created.
+   */
+  platformAdmin: {
+    email: string;
+    password: string;
+  };
   throttle: {
     loginTtlSeconds: number;
     loginLimit: number;
@@ -246,6 +254,10 @@ export const configuration = (): AppConfig => {
       secret: process.env.JWT_SECRET ?? '',
       expiresIn: process.env.JWT_EXPIRES_IN ?? '1d',
     },
+    platformAdmin: {
+      email: (process.env.PLATFORM_ADMIN_EMAIL ?? '').trim().toLowerCase(),
+      password: process.env.PLATFORM_ADMIN_PASSWORD ?? '',
+    },
     throttle: {
       loginTtlSeconds: toInt(process.env.LOGIN_THROTTLE_TTL, 60),
       loginLimit: toInt(process.env.LOGIN_THROTTLE_LIMIT, 5),
@@ -327,6 +339,65 @@ export const validateConfig = (config: AppConfig): AppConfig => {
     errors.push(
       'DB_SSL must be enabled in production unless the database is on localhost or a private ' +
         'platform network (*.railway.internal).',
+    );
+  }
+
+  // A browser origin allowed over plain http in production is a session token
+  // travelling in clear text on somebody's café wifi.
+  const insecureOrigins = config.corsOrigins.filter((origin) => origin.startsWith('http://'));
+
+  if (production && insecureOrigins.length > 0) {
+    errors.push(
+      `CORS_ORIGINS must be https in production. Insecure: ${insecureOrigins.join(', ')}`,
+    );
+  }
+
+  /*
+   * The seed for the first administrator.
+   *
+   * Checked rather than trusted: this password creates an account that can open,
+   * suspend and reset every restaurant on the platform, and nobody is prompted to
+   * make it strong the way a sign-up form would.
+   */
+  const { password: seedPassword, email: seedEmail } = config.platformAdmin;
+
+  if (seedPassword && seedPassword.length < 12) {
+    errors.push('PLATFORM_ADMIN_PASSWORD must be at least 12 characters - it creates a platform administrator.');
+  }
+
+  if (seedPassword && !/[a-z]/.test(seedPassword)) {
+    errors.push('PLATFORM_ADMIN_PASSWORD must include a lowercase letter.');
+  }
+
+  if (seedPassword && !/[A-Z]/.test(seedPassword)) {
+    errors.push('PLATFORM_ADMIN_PASSWORD must include an uppercase letter.');
+  }
+
+  if (seedPassword && !/\d/.test(seedPassword)) {
+    errors.push('PLATFORM_ADMIN_PASSWORD must include a number.');
+  }
+
+
+  if (seedPassword && !seedEmail) {
+    errors.push('PLATFORM_ADMIN_PASSWORD is set without PLATFORM_ADMIN_EMAIL, so no account can be seeded.');
+  }
+
+  /*
+   * Cloudflare Images: all three or none.
+   *
+   * A partial set is the dangerous state. The storage picker treats it as "not
+   * configured" and writes to the local volume, so an operator who believes
+   * photos are on a CDN gets them on a container disk instead - and only finds
+   * out when a deploy wipes them.
+   */
+  const cf = config.uploads.cloudflare;
+  const cfSet = [cf.accountId, cf.token, cf.accountHash].filter(Boolean).length;
+
+  if (production && cfSet > 0 && cfSet < 3) {
+    errors.push(
+      'Cloudflare Images needs CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_IMAGES_TOKEN and ' +
+        'CLOUDFLARE_IMAGES_ACCOUNT_HASH together. With only some set, photos silently go to ' +
+        'local disk instead.',
     );
   }
 

@@ -589,3 +589,9 @@ ordering; 7 and 9 are independent.
 Allocated Technology 
 
 Name,Desigination,Email adress/Phone Number And Linkdin is MUSt
+
+
+
+
+
+Is It possible that we push only admin.plateoai.in and bookings, platform admin, NC bills, menu redesign, payments groundwork elase the other things for payments and payment key dont push that we complete that tommrown then after testing we can push thata also 

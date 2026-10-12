@@ -141,11 +141,14 @@ export class Restaurant {
   allowNegativeStock: boolean;
 
   /**
-   * Whether running out of an ingredient takes its dishes off the menu by itself.
+   * Reserved. Nothing reads this.
    *
-   * Off by default. A wrong recipe or a missed delivery entry would otherwise
-   * empty the menu during service, and a cook who can see the paneer in front of
-   * them should not be told the dish is unavailable.
+   * The intent is that running out of an ingredient takes its dishes off the
+   * menu, but that is not built, and the API no longer accepts or returns it - a
+   * setting that cannot be changed and changes nothing is worse than none. The
+   * column stays because it is already in production and dropping it would need
+   * a migration that buys nothing; delete both together when this is built or
+   * abandoned.
    */
   @ApiProperty({ example: false })
   @Column({ type: 'boolean', name: 'auto_disable_out_of_stock_dishes', default: false })

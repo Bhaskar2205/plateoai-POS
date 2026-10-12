@@ -20,15 +20,15 @@ import { useToast } from '@/components/ui/toast';
  * independent, and a form that has to be submitted is a form people leave
  * half-filled.
  *
- * `autoDisableOutOfStockDishes` has no control here on purpose. The column and
- * the API accept it, but nothing acts on it yet, and a switch that does nothing
- * is worse than no switch.
+ * Two modes, not three. STRICT exists in the enum for stock to affect what may
+ * be sold, which is not built - offering it would be offering a setting that
+ * changes nothing, and a restaurant that picked it would reasonably expect its
+ * menu to start closing itself.
  */
 
-const MODE_HINTS: Record<InventoryMode, string> = {
+const MODE_HINTS: Partial<Record<InventoryMode, string>> = {
   DISABLED: 'Nothing is calculated. You can still record stock by hand, but selling a dish will not take its ingredients off the shelf.',
   TRACKING: 'Settling a bill takes the recipe off the shelf. A sale is never blocked, whatever the figures say.',
-  STRICT: 'As tracking. Reserved for stock affecting what may be sold, which is not built yet, so today it behaves as tracking.',
 };
 
 export function InventorySettingsCard() {
@@ -58,7 +58,7 @@ export function InventorySettingsCard() {
           <SelectField
             label="Stock tracking"
             value={settings.data.mode}
-            hint={MODE_HINTS[settings.data.mode]}
+            hint={MODE_HINTS[settings.data.mode] ?? ''}
             disabled={save.isPending}
             onChange={(event) =>
               save.mutate({ inventoryMode: event.target.value as InventoryMode })
@@ -66,7 +66,6 @@ export function InventorySettingsCard() {
           >
             <option value="DISABLED">Off</option>
             <option value="TRACKING">On — track and report</option>
-            <option value="STRICT">On — strict (same as tracking for now)</option>
           </SelectField>
 
           <CheckboxField

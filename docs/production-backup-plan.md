@@ -2,6 +2,28 @@
 
 ```
 PRODUCTION_BACKUP_READY = false
+
+Unchanged, and this is the honest reading: the *procedure* is proven, the
+*production backup* does not exist. They are different things and only the
+second one protects anybody.
+
+Re-verified 2026-10-09 against `plateo_dev` restored into
+`plateo_restore_check`, on the current 11-migration schema:
+
+| Check | Result |
+|---|---|
+| Dump (`mysqldump --single-transaction --routines --triggers`) | 103,894 bytes |
+| Tables present after restore | 20 of 20 |
+| Row counts, every table | all matched |
+| Migration state | 11 of 11 carried over |
+| **Application running against the restored database** | health, public menu and login all answered correctly, with real data |
+| Source database after the drill | untouched (13 restaurants, as before) |
+| Dump file | deleted; throwaway database dropped |
+
+What is still missing is the only thing that matters: **a backup of `plateo`
+itself**. Nobody has one. It cannot be taken from this machine - the Railway CLI
+is not authenticated here and no production credentials exist locally - so it is
+an action for whoever holds the Railway account.
 ```
 
 That status is set by evidence, not by intent. It flips only when every item in
