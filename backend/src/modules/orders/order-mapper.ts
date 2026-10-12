@@ -28,8 +28,25 @@ import { Order } from './entities/order.entity';
  *    something was cancelled and why - but never appear on the printed bill.
  */
 
-/** Lines that count towards the money: everything not cancelled. */
-export const isBillable = (item: OrderItem): boolean => item.status !== OrderItemStatus.CANCELLED;
+/**
+ * Lines the kitchen actually made.
+ *
+ * Everything not cancelled, comped lines included. This is the question stock
+ * asks: a comped dish was cooked and eaten, so its ingredients left the shelf
+ * exactly as a sold one's did. Answering it with "is it being charged for"
+ * would make every giveaway invisible to inventory and leave the counts drifting
+ * upwards all month.
+ */
+export const wasMade = (item: OrderItem): boolean => item.status !== OrderItemStatus.CANCELLED;
+
+/**
+ * Lines that count towards the money.
+ *
+ * Made, and not given away. This is the question the bill asks, and it is a
+ * different question from the one above - keeping them apart is the whole reason
+ * an NC line can be free without being free of cost.
+ */
+export const isBillable = (item: OrderItem): boolean => wasMade(item) && !item.isNonChargeable;
 
 /** Lines a diner has asked for that staff have not approved yet. */
 export const isAwaitingApproval = (item: OrderItem): boolean =>
@@ -56,6 +73,8 @@ export function toOrderItemDto(item: OrderItem): OrderItemDto {
     awaitingApproval: isAwaitingApproval(item),
     editable: item.kotTicketId === null && item.status !== OrderItemStatus.CANCELLED,
     cancelledReason: item.cancelledReason,
+    isNonChargeable: item.isNonChargeable,
+    ncReason: item.ncReason,
     createdAt: item.createdAt,
   };
 }
@@ -109,6 +128,9 @@ export function toOrderDto(order: Order, tickets: KotTicket[] = []): OrderDto {
     discountValue: order.discountValue,
     discountAmount: order.discountAmount,
     discountReason: order.discountReason,
+    isNonChargeable: order.isNonChargeable,
+    ncReason: order.ncReason,
+    ncFor: order.ncFor,
     taxRate: order.taxRate,
     taxAmount: order.taxAmount,
     serviceChargeAmount: order.serviceChargeAmount,
@@ -195,13 +217,17 @@ export function toBillDto(order: Order, restaurant: Restaurant): BillDto {
     restaurantPhone: restaurant.phone,
     taxNumber: restaurant.taxNumber,
     tableName: order.table?.name ?? null,
+    // Every line that was made, comped ones included and marked as such. A guest
+    // given a dish for nothing should be able to see that it was given.
     lines: sortByCreation(order.items ?? [])
-      .filter(isBillable)
+      .filter(wasMade)
       .map((item) => ({
         name: item.name,
         unitPrice: item.unitPrice,
         quantity: item.quantity,
-        lineTotal: item.lineTotal,
+        lineTotal: item.isNonChargeable ? 0 : item.lineTotal,
+        isNonChargeable: item.isNonChargeable,
+        ncReason: item.ncReason,
       })),
     subtotal: order.subtotal,
     discountAmount: order.discountAmount,

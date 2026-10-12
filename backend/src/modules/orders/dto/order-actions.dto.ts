@@ -56,13 +56,63 @@ export class ApproveOrderItemsDto {
   itemIds?: number[];
 }
 
+/**
+ * Taking a line off the bill.
+ *
+ * The reason is optional in the type and required by the service once the
+ * kitchen has the line, because the two cases are not the same thing. Untapping
+ * a mis-tap before anyone has cooked it is a correction. Removing a dish that was
+ * cooked, plated and carried to a table is a write-off of food and money, and an
+ * owner reading the day back is entitled to know why it happened.
+ */
 export class CancelOrderItemDto {
-  @ApiPropertyOptional({ example: 'Guest changed their mind', maxLength: 255 })
+  @ApiPropertyOptional({
+    example: 'Guest sent it back - too salty',
+    maxLength: 255,
+    description: 'Required once the line has gone to the kitchen.',
+  })
   @IsOptional()
   @Transform(trim)
   @IsString()
-  @MaxLength(255)
+  @Length(3, 255)
   reason?: string;
+}
+
+/**
+ * Comping one line inside a bill the guest is otherwise paying.
+ *
+ * Not a 100% discount: a discount is money taken off a sale, and this is not a
+ * sale. Keeping them apart is what lets an owner ask "what did we give away"
+ * without that answer being tangled up with what they discounted to win custom.
+ */
+export class MarkItemNonChargeableDto {
+  @ApiProperty({ example: 'Guest sent it back - comped', minLength: 3, maxLength: 255 })
+  @Transform(trim)
+  @IsString()
+  @Length(3, 255)
+  reason: string;
+}
+
+/**
+ * The whole bill given away: the owner eating, a staff meal, a friend of the
+ * house.
+ *
+ * `forWhom` is who ate, not who authorised it - the person who punched it is
+ * already on the order and in the audit log. It is the question an owner
+ * actually asks at the end of a month.
+ */
+export class MarkOrderNonChargeableDto {
+  @ApiProperty({ example: "Owner's family", minLength: 2, maxLength: 120 })
+  @Transform(trim)
+  @IsString()
+  @Length(2, 120)
+  forWhom: string;
+
+  @ApiProperty({ example: 'Sunday lunch, owner dining with family', minLength: 3, maxLength: 255 })
+  @Transform(trim)
+  @IsString()
+  @Length(3, 255)
+  reason: string;
 }
 
 /**

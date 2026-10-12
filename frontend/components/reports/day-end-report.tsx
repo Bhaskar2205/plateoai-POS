@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Ban, CheckCircle2, Clock } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Clock, Gift } from 'lucide-react';
 import { formatTime } from '@/lib/format';
 import { useDayEndReport, type ReportRange } from '@/lib/queries';
 import type { DayEndTaxLine } from '@/lib/types';
@@ -231,7 +231,17 @@ export function DayEndReport({ range }: { range: ReportRange }) {
 
           <Card>
             <CardBody>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-4">
+                <div>
+                  <p className="flex items-center gap-1.5 text-sm text-muted">
+                    <Gift className="size-4" aria-hidden />
+                    No charge
+                  </p>
+                  <p className="mt-1 text-xl font-bold text-ink tabular-nums">{report.data.ncBills}</p>
+                  <p className="text-xs text-muted">
+                    Worth {money(report.data.ncValue)} — given away, not sold
+                  </p>
+                </div>
                 <div>
                   <p className="flex items-center gap-1.5 text-sm text-muted">
                     <Ban className="size-4" aria-hidden />

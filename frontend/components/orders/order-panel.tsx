@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import {
   BadgePercent,
   Ban,
@@ -12,6 +13,7 @@ import {
   Printer,
   QrCode,
   Receipt,
+  Gift,
   Trash2,
   X,
 } from 'lucide-react';
@@ -29,6 +31,11 @@ import {
   useApproveOrderItems,
   useCancelOrder,
   useCancelOrderItem,
+  useClearOrderNc,
+  useDeleteNcOrder,
+  useCompOrderItem,
+  useMarkOrderNc,
+  useUncompOrderItem,
   useRemoveDiscount,
   useSendToKitchen,
   useSetTds,
@@ -41,7 +48,7 @@ import { ItemPunchRow } from '@/components/orders/item-punch-row';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardBody, CardHeader } from '@/components/ui/card';
 import { SelectField, TextField } from '@/components/ui/field';
-import { Modal } from '@/components/ui/modal';
+import { ConfirmDialog, Modal } from '@/components/ui/modal';
 import { useToast } from '@/components/ui/toast';
 
 const PAYMENT_METHODS: Array<{ value: PaymentMethod; label: string }> = [
@@ -65,7 +72,17 @@ const PAYMENT_METHODS: Array<{ value: PaymentMethod; label: string }> = [
  * voiding from waiters. The API enforces the same rule; this only keeps a waiter
  * from tapping a button that would fail.
  */
-export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean }) {
+export function OrderPanel({
+  order,
+  canBill,
+  canDeleteNc = false,
+}: {
+  order: Order;
+  canBill: boolean;
+  /** Owners only. Erasing a bill is the one thing a manager may not do. */
+  canDeleteNc?: boolean;
+}) {
+  const router = useRouter();
   const toast = useToast();
 
   const [discounting, setDiscounting] = useState(false);
@@ -76,6 +93,9 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
   const [voiding, setVoiding] = useState(false);
   const [recordingTds, setRecordingTds] = useState(false);
   const [cancellingItem, setCancellingItem] = useState<OrderItem | null>(null);
+  const [compingItem, setCompingItem] = useState<OrderItem | null>(null);
+  const [markingNc, setMarkingNc] = useState(false);
+  const [deletingNc, setDeletingNc] = useState(false);
 
   const addItems = useAddOrderItems({
     onSuccess: () => toast.success('Added to the bill.'),
@@ -88,6 +108,40 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
   });
 
   const updateItem = useUpdateOrderItem({ onError: (error) => toast.error(error) });
+
+  const compItem = useCompOrderItem({
+    onSuccess: () => {
+      setCompingItem(null);
+      toast.success('Line comped. It still comes out of stock.');
+    },
+    onError: (error) => toast.error(error),
+  });
+
+  const uncompItem = useUncompOrderItem({
+    onSuccess: () => toast.success('Back on the bill.'),
+    onError: (error) => toast.error(error),
+  });
+
+  const markNc = useMarkOrderNc({
+    onSuccess: () => {
+      setMarkingNc(false);
+      toast.success('Marked no charge.');
+    },
+    onError: (error) => toast.error(error),
+  });
+
+  const clearNc = useClearOrderNc({
+    onSuccess: () => toast.success('Back to a normal bill.'),
+    onError: (error) => toast.error(error),
+  });
+
+  const deleteNc = useDeleteNcOrder({
+    onSuccess: () => {
+      toast.success('Bill deleted. Stock was left as it was.');
+      router.push('/restaurant/orders');
+    },
+    onError: (error) => toast.error(error),
+  });
 
   const cancelItem = useCancelOrderItem({
     onSuccess: () => {
@@ -182,6 +236,34 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
 
   return (
     <div className="space-y-4">
+      {order.isNonChargeable && (
+        <div className="rounded-xl border border-brand-500/30 bg-brand-50 px-4 py-3">
+          <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-brand-700">
+            <Gift className="size-4 shrink-0" aria-hidden />
+            No charge{order.ncFor ? ` — ${order.ncFor}` : ''}
+          </p>
+          {order.ncReason && <p className="mt-0.5 text-xs text-brand-700/80">{order.ncReason}</p>}
+          <p className="mt-1 text-xs text-brand-700/70">
+            Not counted in sales. The food still came out of stock.
+          </p>
+
+          {/* Only once it is closed: deleting a running bill would strand the
+              table it is sitting on. */}
+          {canDeleteNc && order.status === 'SETTLED' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="mt-2"
+              loading={deleteNc.isPending}
+              onClick={() => setDeletingNc(true)}
+            >
+              <Trash2 className="size-4" aria-hidden />
+              Delete this bill
+            </Button>
+          )}
+        </div>
+      )}
+
       <OrderStrip order={order} minutes={minutes} />
 
       {pending.length > 0 && (
@@ -243,7 +325,7 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
           {isOpen && <ItemPunchRow onAdd={punch} adding={addItems.isPending} />}
 
           <Card>
-            <div className="hidden border-b border-line bg-ground px-4 py-2 text-xs font-semibold tracking-wide text-muted uppercase sm:grid sm:grid-cols-[minmax(0,1fr)_7.5rem_5.5rem_6rem_2rem] sm:gap-3">
+            <div className="hidden border-b border-line bg-ground px-4 py-2 text-xs font-semibold tracking-wide text-muted uppercase sm:grid sm:grid-cols-[minmax(0,1fr)_7.5rem_5.5rem_6rem_5rem] sm:gap-3">
               <span>Item</span>
               <span className="text-center">Qty</span>
               <span className="text-right">Price</span>
@@ -262,13 +344,15 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
                 {[...live, ...cancelled].map((item) => (
                   <li
                     key={item.id}
-                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_7.5rem_5.5rem_6rem_2rem]"
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_7.5rem_5.5rem_6rem_5rem]"
                   >
                     <div className="min-w-0">
                       <p
                         className={cn(
                           'truncate text-sm font-medium',
-                          item.status === 'CANCELLED' ? 'text-muted line-through' : 'text-ink',
+                          item.status === 'CANCELLED' || item.isNonChargeable
+                            ? 'text-muted line-through'
+                            : 'text-ink',
                         )}
                       >
                         {item.name}
@@ -331,13 +415,32 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
                     <span
                       className={cn(
                         'col-start-2 row-start-1 text-right text-sm font-semibold tabular-nums sm:col-auto sm:row-auto',
-                        item.status === 'CANCELLED' ? 'text-muted line-through' : 'text-ink',
+                        item.status === 'CANCELLED' || item.isNonChargeable
+                          ? 'text-muted line-through'
+                          : 'text-ink',
                       )}
                     >
                       {formatMoney(item.lineTotal)}
                     </span>
 
-                    <div className="col-start-2 flex justify-end sm:col-auto">
+                    <div className="col-start-2 flex justify-end gap-1 sm:col-auto">
+                      {isOpen && item.status !== 'CANCELLED' && canBill && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={
+                            item.isNonChargeable ? `Charge for ${item.name}` : `Comp ${item.name}`
+                          }
+                          title={item.isNonChargeable ? 'Put it back on the bill' : 'No charge'}
+                          onClick={() =>
+                            item.isNonChargeable
+                              ? uncompItem.mutate({ orderId: order.id, itemId: item.id })
+                              : setCompingItem(item)
+                          }
+                        >
+                          <Gift className={cn('size-4', item.isNonChargeable && 'text-brand-600')} aria-hidden />
+                        </Button>
+                      )}
                       {isOpen && item.status !== 'CANCELLED' && (
                         <Button
                           size="sm"
@@ -499,6 +602,26 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
                     {order.tdsRate === null ? 'Record TDS' : `TDS @ ${order.tdsRate}%`}
                   </Button>
 
+                  {/* Separate from a discount on purpose. A discount is money off a
+                      sale; this was never a sale, and an owner asking what the house
+                      gave away wants the two kept apart. */}
+                  {order.isNonChargeable ? (
+                    <Button
+                      variant="ghost"
+                      className="w-full"
+                      loading={clearNc.isPending}
+                      onClick={() => clearNc.mutate({ orderId: order.id })}
+                    >
+                      <X className="size-4" aria-hidden />
+                      Charge for this bill
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" className="w-full" onClick={() => setMarkingNc(true)}>
+                      <Gift className="size-4" aria-hidden />
+                      No charge (NC)
+                    </Button>
+                  )}
+
                   <Button
                     className="w-full"
                     onClick={() => {
@@ -557,6 +680,33 @@ export function OrderPanel({ order, canBill }: { order: Order; canBill: boolean 
         submitting={voidOrder.isPending}
         onClose={() => setVoiding(false)}
         onSubmit={(reason) => voidOrder.mutate({ orderId: order.id, reason })}
+      />
+
+      <ConfirmDialog
+        open={deletingNc}
+        title="Delete this bill for good?"
+        message="It is removed from Plateo entirely and cannot be brought back. Stock is left exactly as it is, because that food was eaten. The activity log keeps a record that you deleted it."
+        confirmLabel="Delete permanently"
+        loading={deleteNc.isPending}
+        onCancel={() => setDeletingNc(false)}
+        onConfirm={() => deleteNc.mutate({ orderId: order.id })}
+      />
+
+      <CompItemDialog
+        item={compingItem}
+        submitting={compItem.isPending}
+        onClose={() => setCompingItem(null)}
+        onSubmit={(reason) =>
+          compingItem && compItem.mutate({ orderId: order.id, itemId: compingItem.id, reason })
+        }
+      />
+
+      <MarkNcDialog
+        open={markingNc}
+        total={order.amountPayable}
+        submitting={markNc.isPending}
+        onClose={() => setMarkingNc(false)}
+        onSubmit={(forWhom, reason) => markNc.mutate({ orderId: order.id, forWhom, reason })}
       />
 
       <CancelItemDialog
@@ -906,14 +1056,20 @@ function CancelItemDialog({
 }) {
   const [reason, setReason] = useState('');
 
+  // Once the kitchen has it, this is a write-off rather than a correction, and
+  // the API will refuse it without a reason. Saying so here - and closing the
+  // button off - is kinder than letting somebody press it and read an error.
+  const sent = item !== null && item.kotTicketId !== null;
+  const ready = !sent || reason.trim().length >= 3;
+
   return (
     <Modal
       open={item !== null}
-      title={item ? `Cancel ${item.quantity}x ${item.name}` : 'Cancel line'}
+      title={item ? `Remove ${item.quantity}x ${item.name}` : 'Remove line'}
       description={
-        item?.kotTicketId === null
-          ? 'It has not reached the kitchen yet.'
-          : 'The kitchen already has this - let them know as well.'
+        sent
+          ? 'The kitchen has already made this, so a reason is required - and tell them as well.'
+          : 'It has not reached the kitchen yet.'
       }
       onClose={onClose}
       footer={
@@ -924,9 +1080,10 @@ function CancelItemDialog({
           <Button
             variant="danger"
             loading={submitting}
+            disabled={!ready}
             onClick={() => onSubmit(reason.trim() || undefined)}
           >
-            Cancel line
+            Remove line
           </Button>
         </>
       }
@@ -934,11 +1091,131 @@ function CancelItemDialog({
       <TextField
         label="Reason"
         placeholder="Guest changed their mind, kitchen out of stock..."
-        hint="Optional, but it is what the owner sees later."
+        hint={
+          sent
+            ? 'Required: the kitchen made this, so it is a write-off.'
+            : 'Optional, but it is what the owner sees later.'
+        }
         maxLength={255}
         value={reason}
         onChange={(event) => setReason(event.target.value)}
       />
+    </Modal>
+  );
+}
+
+/**
+ * Comping one line.
+ *
+ * The reason is required, and the dialog says why rather than only refusing:
+ * somebody reading the month back is entitled to know what was given away and to
+ * whom, and "no reason given" is the one answer that helps nobody.
+ */
+function CompItemDialog({
+  item,
+  submitting,
+  onClose,
+  onSubmit,
+}: {
+  item: OrderItem | null;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState('');
+
+  return (
+    <Modal
+      open={item !== null}
+      title={item ? `No charge for ${item.quantity}x ${item.name}` : 'No charge'}
+      description="It stays on the bill at zero, and still comes out of stock - it was cooked and eaten."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            Keep charging
+          </Button>
+          <Button
+            loading={submitting}
+            disabled={reason.trim().length < 3}
+            onClick={() => onSubmit(reason.trim())}
+          >
+            No charge
+          </Button>
+        </>
+      }
+    >
+      <TextField
+        label="Reason"
+        placeholder="Guest sent it back, on the house..."
+        hint="Required. This is what the owner reads later."
+        maxLength={255}
+        value={reason}
+        onChange={(event) => setReason(event.target.value)}
+      />
+    </Modal>
+  );
+}
+
+/**
+ * The whole bill given away.
+ *
+ * Asks who ate as well as why, because that is the question an owner actually
+ * has at the end of a month - not who authorised it, which is already on the
+ * bill and in the activity log.
+ */
+function MarkNcDialog({
+  open,
+  total,
+  submitting,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  total: number;
+  submitting: boolean;
+  onClose: () => void;
+  onSubmit: (forWhom: string, reason: string) => void;
+}) {
+  const [forWhom, setForWhom] = useState('');
+  const [reason, setReason] = useState('');
+
+  const ready = forWhom.trim().length >= 2 && reason.trim().length >= 3;
+
+  return (
+    <Modal
+      open={open}
+      title="Mark this bill no charge"
+      description={`${formatMoney(total)} comes off the takings. The food still comes out of stock, and the bill is kept so you can see what the house gave away.`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button loading={submitting} disabled={!ready} onClick={() => onSubmit(forWhom.trim(), reason.trim())}>
+            No charge
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <TextField
+          label="Who ate"
+          placeholder="Owner's family, staff meal..."
+          hint="Required. Not who approved it - who the food was for."
+          maxLength={120}
+          value={forWhom}
+          onChange={(event) => setForWhom(event.target.value)}
+        />
+        <TextField
+          label="Reason"
+          placeholder="Sunday lunch, tasting the new menu..."
+          maxLength={255}
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+        />
+      </div>
     </Modal>
   );
 }

@@ -131,7 +131,6 @@ describe('Inventory (e2e)', () => {
       expect(settings).toEqual({
         mode: InventoryMode.DISABLED,
         allowNegativeStock: false,
-        autoDisableOutOfStockDishes: false,
       });
     });
 
@@ -959,6 +958,121 @@ describe('Inventory (e2e)', () => {
           (row) => row.movementType === InventoryMovementType.SALE_CONSUMPTION,
         ),
       ).toHaveLength(1);
+    });
+  });
+
+  describe('food that was given away', () => {
+    /**
+     * The whole reason "was it made" and "is it charged for" are two different
+     * questions. A comped dish costs the restaurant exactly what a sold one
+     * costs; if it stopped coming off the shelf, stock would drift upwards by
+     * every giveaway all month and the first anyone would know is an empty
+     * container that the system swore was full.
+     */
+    it('comes off the shelf exactly like food that was sold', async () => {
+      const owner = await registerOwner(app, { restaurantName: 'Comp Stock House' });
+      const h = auth(owner.accessToken);
+      await enableInventory(h);
+
+      const paneer = await createIngredient(h, {
+        name: 'Comped Paneer',
+        unit: IngredientUnit.KG,
+        openingQuantity: 10,
+        costPerUnitPaise: 40000,
+      });
+      const dish = await createDish(h, 'Comped Tikka');
+      await setRecipe(h, dish.id, [{ ingredientId: paneer.id, quantity: 200, unit: 'g' }]);
+
+      const order = (
+        await api(app).post(orders).set(h).send({ items: [{ dishId: dish.id, quantity: 2 }] }).expect(201)
+      ).body;
+
+      // Comp one of the two lines' worth by comping the whole line.
+      await api(app)
+        .post(`${orders}/${order.id}/items/${order.items[0].id}/nc`)
+        .set(h)
+        .send({ reason: 'On the house' })
+        .expect(200);
+
+      await api(app)
+        .post(`${orders}/${order.id}/settle`)
+        .set(h)
+        .send({ paymentMethod: 'CASH' })
+        .expect(200);
+
+      // 2 x 200g was cooked and eaten, whoever paid for it.
+      expect(await stockOf(h, paneer.id)).toBe(9.6);
+    });
+
+    it('comes off the shelf when the whole bill is a giveaway', async () => {
+      const owner = await registerOwner(app, { restaurantName: 'NC Bill Stock House' });
+      const h = auth(owner.accessToken);
+      await enableInventory(h);
+
+      const rice = await createIngredient(h, {
+        name: 'NC Rice',
+        unit: IngredientUnit.KG,
+        openingQuantity: 5,
+        costPerUnitPaise: 6000,
+      });
+      const dish = await createDish(h, 'NC Biryani');
+      await setRecipe(h, dish.id, [{ ingredientId: rice.id, quantity: 300, unit: 'g' }]);
+
+      const order = (
+        await api(app).post(orders).set(h).send({ items: [{ dishId: dish.id, quantity: 1 }] }).expect(201)
+      ).body;
+
+      await api(app)
+        .post(`${orders}/${order.id}/nc`)
+        .set(h)
+        .send({ forWhom: 'Owner family', reason: 'Sunday lunch' })
+        .expect(200);
+
+      await api(app)
+        .post(`${orders}/${order.id}/settle`)
+        .set(h)
+        .send({ paymentMethod: 'CASH' })
+        .expect(200);
+
+      expect(await stockOf(h, rice.id)).toBe(4.7);
+    });
+
+    it('leaves stock alone when an owner deletes the giveaway afterwards', async () => {
+      // The bill goes; the food stays eaten. Putting the ingredients back would
+      // make the counts lie about what is physically on the shelf.
+      const owner = await registerOwner(app, { restaurantName: 'Deleted NC Stock House' });
+      const h = auth(owner.accessToken);
+      await enableInventory(h);
+
+      const oil = await createIngredient(h, {
+        name: 'NC Oil',
+        unit: IngredientUnit.LITRE,
+        openingQuantity: 2,
+        costPerUnitPaise: 15000,
+      });
+      const dish = await createDish(h, 'NC Fry');
+      await setRecipe(h, dish.id, [{ ingredientId: oil.id, quantity: 100, unit: 'ml' }]);
+
+      const order = (
+        await api(app).post(orders).set(h).send({ items: [{ dishId: dish.id, quantity: 1 }] }).expect(201)
+      ).body;
+
+      await api(app)
+        .post(`${orders}/${order.id}/nc`)
+        .set(h)
+        .send({ forWhom: 'Owner family', reason: 'Tasting' })
+        .expect(200);
+      await api(app)
+        .post(`${orders}/${order.id}/settle`)
+        .set(h)
+        .send({ paymentMethod: 'CASH' })
+        .expect(200);
+
+      expect(await stockOf(h, oil.id)).toBe(1.9);
+
+      await api(app).delete(`${orders}/${order.id}`).set(h).expect(204);
+
+      expect(await stockOf(h, oil.id)).toBe(1.9);
     });
   });
 });

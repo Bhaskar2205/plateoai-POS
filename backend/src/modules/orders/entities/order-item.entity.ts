@@ -90,6 +90,21 @@ export class OrderItem {
   @Column({ type: 'varchar', length: 255, name: 'cancelled_reason', nullable: true })
   cancelledReason: string | null;
 
+  /**
+   * Comped: cooked, served and eaten, but not charged for.
+   *
+   * Distinct from CANCELLED, which means it never reached the guest. The
+   * difference matters to stock: a cancelled line consumes nothing, a comped one
+   * consumes exactly as much as a sold one.
+   */
+  @ApiProperty({ example: false })
+  @Column({ type: 'boolean', name: 'is_non_chargeable', default: false })
+  isNonChargeable: boolean;
+
+  @ApiProperty({ nullable: true, example: 'Guest sent it back - comped' })
+  @Column({ type: 'varchar', length: 255, name: 'nc_reason', nullable: true })
+  ncReason: string | null;
+
   @ApiProperty()
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

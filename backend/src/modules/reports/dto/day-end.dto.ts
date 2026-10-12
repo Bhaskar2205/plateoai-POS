@@ -98,6 +98,16 @@ export class DayEndReportDto {
   @ApiProperty({ example: 980, description: 'Value of voided bills. Never counted as takings.' })
   voidedValue: number;
 
+
+  @ApiProperty({ example: 3, description: 'Bills given away. Never counted as sales.' })
+
+  ncBills: number;
+
+
+  @ApiProperty({ example: 1840, description: 'What those giveaways were worth.' })
+
+  ncValue: number;
+
   @ApiProperty({ nullable: true, example: '2026-10-01T06:42:00.000Z' })
   firstSettledAt: Date | null;
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { Ban, BadgePercent, Trash2 } from 'lucide-react';
+import { BadgePercent, Ban, Gift, Trash2 } from 'lucide-react';
 import { formatTime } from '@/lib/format';
 import {
   useAdjustmentsReport,
@@ -144,6 +144,21 @@ export function SalesReport({ range }: { range: ReportRange }) {
               </CardBody>
             </Card>
           </div>
+
+          {report.data.ncBills > 0 && (
+            <Card>
+              <CardBody className="flex items-start gap-3">
+                <Gift className="mt-0.5 size-5 shrink-0 text-brand-600" aria-hidden />
+                <p className="text-sm text-muted">
+                  <span className="font-medium text-ink">
+                    {report.data.ncBills} bill{report.data.ncBills === 1 ? ' was' : 's were'} given away
+                  </span>{' '}
+                  in this period, worth {money(report.data.ncValue)}. No-charge bills are never counted
+                  as takings, but the food still came out of stock.
+                </p>
+              </CardBody>
+            </Card>
+          )}
 
           {report.data.voidedBills > 0 && (
             <Card>

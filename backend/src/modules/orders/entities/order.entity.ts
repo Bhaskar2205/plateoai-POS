@@ -80,6 +80,26 @@ export class Order {
   @Column({ type: 'varchar', length: 255, name: 'discount_reason', nullable: true })
   discountReason: string | null;
 
+  /**
+   * Food the restaurant gave away rather than sold.
+   *
+   * A flag, not a status: an NC bill still settles, because settling is what
+   * takes the ingredients out of stock and closes the kitchen tickets. What it
+   * is not is revenue, and no report counts it as such.
+   */
+  @ApiProperty({ example: false })
+  @Column({ type: 'boolean', name: 'is_non_chargeable', default: false })
+  isNonChargeable: boolean;
+
+  @ApiProperty({ nullable: true, example: 'Owner dining with family' })
+  @Column({ type: 'varchar', length: 255, name: 'nc_reason', nullable: true })
+  ncReason: string | null;
+
+  /** Who ate - not who authorised it. That is `settledBy` and the audit log. */
+  @ApiProperty({ nullable: true, example: "Owner's family" })
+  @Column({ type: 'varchar', length: 120, name: 'nc_for', nullable: true })
+  ncFor: string | null;
+
   @ApiProperty({ example: 5, description: 'Tax percentage applied to this bill, copied from the restaurant at settlement.' })
   @Column({ type: 'decimal', precision: 5, scale: 2, name: 'tax_rate', default: 0, transformer: numericTransformer })
   taxRate: number;

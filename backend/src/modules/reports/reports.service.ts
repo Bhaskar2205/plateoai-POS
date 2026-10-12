@@ -87,7 +87,12 @@ export class ReportsService {
     const period = this.period(range);
     const orders = await this.ordersIn(restaurantId, period);
 
-    const settled = orders.filter((order) => order.status === OrderStatus.SETTLED);
+    // A no-charge bill settled like any other - that is how its stock came off -
+    // but it was never a sale. Counting it as one would overstate takings and put
+    // a figure on a GST return that nobody ever paid.
+    const closed = orders.filter((order) => order.status === OrderStatus.SETTLED);
+    const settled = closed.filter((order) => !order.isNonChargeable);
+    const nonChargeable = closed.filter((order) => order.isNonChargeable);
     const voided = orders.filter((order) => order.status === OrderStatus.CANCELLED);
     const open = orders.filter((order) => order.status === OrderStatus.OPEN);
 
@@ -137,6 +142,10 @@ export class ReportsService {
       voidedBills: voided.length,
       // A voided bill stores zeroed totals, so its worth is read from its lines.
       voidedValue: fromPaise(await this.valueOfItems(voided.map((order) => order.id))),
+      // Shown, never added in. An owner wants to know what the house gave
+      // away; they do not want it in their takings.
+      ncBills: nonChargeable.length,
+      ncValue: fromPaise(await this.valueOfItems(nonChargeable.map((order) => order.id))),
       payments: [...byPayment.entries()]
         .map(([method, value]) => ({ method, bills: value.bills, total: fromPaise(value.paise) }))
         .sort((a, b) => b.total - a.total),
@@ -182,10 +191,19 @@ export class ReportsService {
         amountPayable: true,
         paymentMethod: true,
         settledAt: true,
+        // Without this the column is never loaded, every bill reads as
+        // undefined, and every giveaway quietly counts as a sale.
+        isNonChargeable: true,
+        ncFor: true,
       },
     });
 
-    const settled = orders.filter((order) => order.status === OrderStatus.SETTLED);
+    // A no-charge bill settled like any other - that is how its stock came off -
+    // but it was never a sale. Counting it as one would overstate takings and put
+    // a figure on a GST return that nobody ever paid.
+    const closed = orders.filter((order) => order.status === OrderStatus.SETTLED);
+    const settled = closed.filter((order) => !order.isNonChargeable);
+    const nonChargeable = closed.filter((order) => order.isNonChargeable);
     const open = orders.filter((order) => order.status === OrderStatus.OPEN);
     const voided = orders.filter((order) => order.status === OrderStatus.CANCELLED);
 
@@ -244,6 +262,10 @@ export class ReportsService {
       voidedBills: voided.length,
       // A voided bill stores zeroed totals, so its worth is read from its lines.
       voidedValue: fromPaise(await this.valueOfItems(voided.map((order) => order.id))),
+      // Shown, never added in. An owner wants to know what the house gave
+      // away; they do not want it in their takings.
+      ncBills: nonChargeable.length,
+      ncValue: fromPaise(await this.valueOfItems(nonChargeable.map((order) => order.id))),
       firstSettledAt,
       lastSettledAt,
     };
@@ -652,6 +674,10 @@ export class ReportsService {
         total: true,
         paymentMethod: true,
         settledAt: true,
+        // Without this the column is never loaded, every bill reads as
+        // undefined, and every giveaway quietly counts as a sale.
+        isNonChargeable: true,
+        ncFor: true,
       },
     });
   }

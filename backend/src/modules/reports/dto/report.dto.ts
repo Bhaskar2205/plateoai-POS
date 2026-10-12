@@ -88,6 +88,16 @@ export class SalesSummaryDto {
   @ApiProperty({ example: 640, description: 'Value of the voided bills, for the record.' })
   voidedValue: number;
 
+
+  @ApiProperty({ example: 3, description: 'Bills given away. Never counted as sales.' })
+
+  ncBills: number;
+
+
+  @ApiProperty({ example: 1840, description: 'What those giveaways were worth.' })
+
+  ncValue: number;
+
   @ApiProperty({ type: [PaymentBreakdownDto] })
   payments: PaymentBreakdownDto[];
 

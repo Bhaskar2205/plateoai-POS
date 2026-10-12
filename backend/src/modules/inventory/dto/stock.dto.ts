@@ -170,8 +170,4 @@ export class InventorySettingsDto {
   @IsBoolean()
   allowNegativeStock?: boolean;
 
-  @ApiPropertyOptional({ example: false })
-  @IsOptional()
-  @IsBoolean()
-  autoDisableOutOfStockDishes?: boolean;
 }

@@ -62,6 +62,12 @@ export class OrderItemDto {
   @ApiProperty({ nullable: true, example: 'Guest changed their mind' })
   cancelledReason: string | null;
 
+  @ApiProperty({ example: false, description: 'Comped: served, not charged for.' })
+  isNonChargeable: boolean;
+
+  @ApiPropertyOptional({ nullable: true, example: 'Guest sent it back - comped' })
+  ncReason: string | null;
+
   @ApiProperty()
   createdAt: Date;
 }
@@ -155,6 +161,15 @@ export class OrderDto {
 
   @ApiProperty({ nullable: true, example: 'Regular guest' })
   discountReason: string | null;
+
+  @ApiProperty({ example: false, description: 'The whole bill was given away.' })
+  isNonChargeable: boolean;
+
+  @ApiPropertyOptional({ nullable: true, example: 'Owner dining with family' })
+  ncReason: string | null;
+
+  @ApiPropertyOptional({ nullable: true, example: 'Owner family', description: 'Who ate.' })
+  ncFor: string | null;
 
   @ApiProperty({ example: 5, description: 'Combined tax percentage, derived from the charges below.' })
   taxRate: number;
@@ -304,8 +319,19 @@ export class BillLineDto {
   @ApiProperty({ example: 2 })
   quantity: number;
 
-  @ApiProperty({ example: 499 })
+  @ApiProperty({ example: 499, description: 'Zero on a comped line - it is shown, not charged.' })
   lineTotal: number;
+
+  /**
+   * Shown on the bill rather than hidden from it. A guest given a dish for
+   * nothing should be able to see that it was given, and a guest who cannot see
+   * it has no reason to believe it happened.
+   */
+  @ApiProperty({ example: false })
+  isNonChargeable: boolean;
+
+  @ApiPropertyOptional({ nullable: true, example: 'Guest sent it back - comped' })
+  ncReason: string | null;
 }
 
 /**

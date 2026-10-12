@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { formatTime } from '@/lib/format';
-import { canBill, canTakeOrders } from '@/lib/permissions';
+import { canBill, canDeleteNcBill, canTakeOrders } from '@/lib/permissions';
 import { useOrder } from '@/lib/queries';
 import { OrderPanel } from '@/components/orders/order-panel';
 import { Badge, Card, CardBody } from '@/components/ui/card';
@@ -82,7 +82,11 @@ export default function OrderPage() {
               </Badge>
             </div>
           )}
-          <OrderPanel order={order.data} canBill={canBill(session.user.role)} />
+          <OrderPanel
+            order={order.data}
+            canBill={canBill(session.user.role)}
+            canDeleteNc={canDeleteNcBill(session.user.role)}
+          />
         </>
       ) : null}
     </>

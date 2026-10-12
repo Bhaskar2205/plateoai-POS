@@ -15,6 +15,7 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiNoContentResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -30,12 +31,14 @@ import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
-import { BILLING_ROLES, ORDER_WRITE_ROLES } from 'src/common/enums';
+import { BILLING_ROLES, ORDER_WRITE_ROLES, RESTAURANT_ADMIN_ROLES } from 'src/common/enums';
 import {
   ApplyDiscountDto,
   ApproveOrderItemsDto,
   CancelOrderDto,
   CancelOrderItemDto,
+  MarkItemNonChargeableDto,
+  MarkOrderNonChargeableDto,
   QueryOrdersDto,
   SettleOrderDto,
   UpdateOrderItemDto,
@@ -188,6 +191,98 @@ export class OrdersController {
     @Body() dto: CancelOrderItemDto,
   ): Promise<OrderDto> {
     return this.ordersService.cancelItem(restaurantId, id, itemId, dto);
+  }
+
+  @Post('orders/:id/items/:itemId/nc')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...BILLING_ROLES)
+  @ApiOperation({
+    summary: 'Comp a line',
+    description:
+      'Cooked, served, not charged for. Owners and managers only: giving food away is a money ' +
+      'decision, not a floor one. The line keeps its price so an owner can see what the giveaway ' +
+      'was worth, and it still comes out of stock, because it was eaten.',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  markItemNonChargeable(
+    @ActiveRestaurantId() restaurantId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('itemId', ParseIntPipe) itemId: number,
+    @Body() dto: MarkItemNonChargeableDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<OrderDto> {
+    return this.ordersService.markItemNonChargeable(restaurantId, id, itemId, dto, userId, context);
+  }
+
+  @Delete('orders/:id/items/:itemId/nc')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...BILLING_ROLES)
+  @ApiOperation({ summary: 'Put a comped line back on the bill' })
+  @ApiOkResponse({ type: OrderDto })
+  clearItemNonChargeable(
+    @ActiveRestaurantId() restaurantId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('itemId', ParseIntPipe) itemId: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<OrderDto> {
+    return this.ordersService.clearItemNonChargeable(restaurantId, id, itemId, userId, context);
+  }
+
+  @Post('orders/:id/nc')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...BILLING_ROLES)
+  @ApiOperation({
+    summary: 'Mark the whole bill no-charge',
+    description:
+      "The owner eating, a staff meal, a friend of the house. It still settles - that is what takes " +
+      'the ingredients out of stock and frees the table - but no report counts it as revenue. Only ' +
+      'while the bill is open: a settled bill has already been read into the day.',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  markOrderNonChargeable(
+    @ActiveRestaurantId() restaurantId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: MarkOrderNonChargeableDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<OrderDto> {
+    return this.ordersService.setOrderNonChargeable(restaurantId, id, dto, userId, context);
+  }
+
+  @Delete('orders/:id/nc')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...BILLING_ROLES)
+  @ApiOperation({ summary: 'Make a no-charge bill a normal one again' })
+  @ApiOkResponse({ type: OrderDto })
+  clearOrderNonChargeable(
+    @ActiveRestaurantId() restaurantId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<OrderDto> {
+    return this.ordersService.setOrderNonChargeable(restaurantId, id, null, userId, context);
+  }
+
+  @Delete('orders/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Delete a no-charge bill',
+    description:
+      'Owners only, and only a bill already marked no-charge - a sale can never be deleted. The ' +
+      'bill, its lines and its kitchen tickets go permanently and cannot be recovered. Stock is ' +
+      'left alone, because that food was eaten. The audit log keeps a record of the deletion.',
+  })
+  @ApiNoContentResponse()
+  deleteNonChargeable(
+    @ActiveRestaurantId() restaurantId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<void> {
+    return this.ordersService.deleteNonChargeable(restaurantId, id, userId, context);
   }
 
   @Post('orders/:id/approve')

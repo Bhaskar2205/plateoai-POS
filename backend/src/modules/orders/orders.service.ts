@@ -32,6 +32,8 @@ import {
   ApproveOrderItemsDto,
   CancelOrderDto,
   CancelOrderItemDto,
+  MarkItemNonChargeableDto,
+  MarkOrderNonChargeableDto,
   QueryOrdersDto,
   SettleOrderDto,
   UpdateOrderItemDto,
@@ -43,7 +45,7 @@ import { OrderItem } from './entities/order-item.entity';
 import { Order } from './entities/order.entity';
 import {
   isAwaitingApproval,
-  isBillable,
+  wasMade,
   isUnsent,
   toBillDto,
   toKotPrintDto,
@@ -331,6 +333,15 @@ export class OrdersService {
       throw new BadRequestException('This line has already been cancelled.');
     }
 
+    // Once a ticket exists the kitchen has cooked, or is cooking, this food.
+    // Taking it off the bill now is a write-off, and a write-off without a
+    // reason is indistinguishable from a till being quietly emptied.
+    if (item.kotTicketId !== null && !dto.reason) {
+      throw new BadRequestException(
+        'This line has already gone to the kitchen, so a reason is required to take it off the bill.',
+      );
+    }
+
     const components = await this.taxComponentsFor(restaurantId);
     const ticketId = item.kotTicketId;
 
@@ -349,6 +360,208 @@ export class OrdersService {
     });
 
     return this.findOne(restaurantId, orderId);
+  }
+
+  /**
+   * Comps one line: cooked, served, not charged for.
+   *
+   * The line keeps its price. Zeroing it here would destroy the only record of
+   * what the giveaway was worth, which is the number an owner wants at the end
+   * of the month; the bill shows it at zero and the totals leave it out.
+   */
+  async markItemNonChargeable(
+    restaurantId: number,
+    orderId: number,
+    itemId: number,
+    dto: MarkItemNonChargeableDto,
+    userId: number,
+    context?: AuditContext,
+  ): Promise<OrderDto> {
+    const order = await this.loadOrder(restaurantId, orderId);
+    this.assertOpen(order);
+
+    const item = this.itemOf(order, itemId);
+
+    if (item.status === OrderItemStatus.CANCELLED) {
+      throw new BadRequestException('A cancelled line cannot be comped: it was never served.');
+    }
+
+    if (item.isNonChargeable) {
+      throw new BadRequestException('This line is already comped.');
+    }
+
+    const components = await this.taxComponentsFor(restaurantId);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(OrderItem).save({
+        ...item,
+        isNonChargeable: true,
+        ncReason: dto.reason,
+      });
+
+      await recalculateOrder(manager, order.id, components);
+
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.ORDER_ITEM_COMPED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        newValue: { itemId, name: item.name, value: item.lineTotal },
+        reason: dto.reason,
+        context,
+      });
+    });
+
+    return this.findOne(restaurantId, orderId);
+  }
+
+  /** Puts a comped line back on the bill. */
+  async clearItemNonChargeable(
+    restaurantId: number,
+    orderId: number,
+    itemId: number,
+    userId: number,
+    context?: AuditContext,
+  ): Promise<OrderDto> {
+    const order = await this.loadOrder(restaurantId, orderId);
+    this.assertOpen(order);
+
+    const item = this.itemOf(order, itemId);
+
+    if (!item.isNonChargeable) {
+      throw new BadRequestException('This line is not comped.');
+    }
+
+    const components = await this.taxComponentsFor(restaurantId);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(OrderItem).save({
+        ...item,
+        isNonChargeable: false,
+        ncReason: null,
+      });
+
+      await recalculateOrder(manager, order.id, components);
+
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.ORDER_ITEM_COMP_CLEARED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        oldValue: { itemId, name: item.name, reason: item.ncReason },
+        context,
+      });
+    });
+
+    return this.findOne(restaurantId, orderId);
+  }
+
+  /**
+   * Marks the whole bill as given away, or takes that mark off again.
+   *
+   * Only while the bill is open. Once it has settled the day's figures have been
+   * read off it, and a bill that could silently stop being a sale afterwards
+   * would make every report that was already printed wrong.
+   */
+  async setOrderNonChargeable(
+    restaurantId: number,
+    orderId: number,
+    dto: MarkOrderNonChargeableDto | null,
+    userId: number,
+    context?: AuditContext,
+  ): Promise<OrderDto> {
+    const order = await this.loadOrder(restaurantId, orderId);
+    this.assertOpen(order);
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(Order).update(
+        { id: order.id, restaurantId },
+        {
+          isNonChargeable: dto !== null,
+          ncReason: dto?.reason ?? null,
+          ncFor: dto?.forWhom ?? null,
+        },
+      );
+
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: dto ? AuditAction.ORDER_MARKED_NC : AuditAction.ORDER_NC_CLEARED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        newValue: dto ? { forWhom: dto.forWhom, value: order.amountPayable } : null,
+        reason: dto?.reason ?? null,
+        context,
+      });
+    });
+
+    return this.findOne(restaurantId, orderId);
+  }
+
+  /**
+   * Erases a no-charge bill. Owners only, and only ever an NC one.
+   *
+   * This is the one place in Plateo where a financial row is destroyed rather
+   * than marked, and it is deliberate: an owner asked to be able to take their
+   * own meals out of the system entirely. The guard rails that make it survivable:
+   *
+   *  - only a bill already marked NC can go, so no sale can be deleted by
+   *    mistake or by design;
+   *  - the audit record is written first and outlives the bill, so the act is
+   *    always visible even though its subject is not;
+   *  - stock is left exactly as it was. `inventory_movements` points at orders by
+   *    a loose reference rather than a foreign key, so the ledger survives this
+   *    and keeps reconciling against what is on the shelf. That food was eaten;
+   *    putting the ingredients back would make the counts lie.
+   *
+   * `order_items`, `order_charges` and `kot_tickets` go with it through their
+   * cascades. Any payment intent is detached rather than deleted, which is the
+   * existing ON DELETE SET NULL and the right behaviour: a payment is a fact
+   * about money that moved and is not the restaurant's to erase.
+   */
+  async deleteNonChargeable(
+    restaurantId: number,
+    orderId: number,
+    userId: number,
+    context?: AuditContext,
+  ): Promise<void> {
+    const order = await this.loadOrder(restaurantId, orderId);
+
+    if (!order.isNonChargeable) {
+      throw new BadRequestException(
+        'Only a no-charge bill can be deleted. A sale is kept, whatever its state.',
+      );
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      // Written before the delete, and on purpose not tied to the row by a
+      // foreign key, so it is still here tomorrow when somebody asks what
+      // happened to bill 412.
+      await this.auditService.recordIn(manager, {
+        restaurantId,
+        userId,
+        action: AuditAction.NC_ORDER_DELETED,
+        entityType: AuditEntity.ORDER,
+        entityId: order.id,
+        oldValue: {
+          orderNumber: order.orderNumber,
+          businessDate: order.businessDate,
+          value: order.amountPayable,
+          forWhom: order.ncFor,
+          items: order.items.filter(wasMade).map((item) => ({
+            name: item.name,
+            quantity: item.quantity,
+            lineTotal: item.lineTotal,
+          })),
+        },
+        reason: order.ncReason,
+        context,
+      });
+
+      await manager.getRepository(Order).delete({ id: order.id, restaurantId });
+    });
   }
 
   /**
@@ -675,7 +888,10 @@ export class OrdersService {
     const order = await this.loadOrder(restaurantId, orderId);
     this.assertOpen(order);
 
-    if (order.items.filter(isBillable).length === 0) {
+    // `wasMade`, not `isBillable`. A bill where every line is comped has nothing
+    // to charge for and everything to settle: the food was cooked, the stock has
+    // to come off and the table has to be freed.
+    if (order.items.filter(wasMade).length === 0) {
       throw new BadRequestException('There is nothing on this bill to settle.');
     }
 

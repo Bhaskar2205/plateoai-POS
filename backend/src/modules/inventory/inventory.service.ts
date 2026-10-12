@@ -18,7 +18,7 @@ import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.enti
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { Ingredient } from 'src/modules/ingredients/entities/ingredient.entity';
 import { OrderItem } from 'src/modules/orders/entities/order-item.entity';
-import { isBillable } from 'src/modules/orders/order-mapper';
+import { wasMade } from 'src/modules/orders/order-mapper';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import {
   InventorySettingsDto,
@@ -35,7 +35,6 @@ import { ConsumptionPlan, planConsumption, RecipeLine, SoldLine } from './recipe
 export interface InventorySettings {
   mode: InventoryMode;
   allowNegativeStock: boolean;
-  autoDisableOutOfStockDishes: boolean;
 }
 
 interface ApplyMovement {
@@ -160,7 +159,7 @@ export class InventoryService {
   async settingsFor(restaurantId: number): Promise<InventorySettings> {
     const restaurant = await this.restaurants.findOne({
       where: { id: restaurantId },
-      select: ['id', 'inventoryMode', 'allowNegativeStock', 'autoDisableOutOfStockDishes'],
+      select: ['id', 'inventoryMode', 'allowNegativeStock'],
     });
 
     if (!restaurant) throw new NotFoundException('Restaurant not found.');
@@ -168,7 +167,6 @@ export class InventoryService {
     return {
       mode: restaurant.inventoryMode,
       allowNegativeStock: restaurant.allowNegativeStock,
-      autoDisableOutOfStockDishes: restaurant.autoDisableOutOfStockDishes,
     };
   }
 
@@ -193,9 +191,6 @@ export class InventoryService {
       changes.inventoryConsumptionMode = dto.inventoryConsumptionMode;
     }
     if (dto.allowNegativeStock !== undefined) changes.allowNegativeStock = dto.allowNegativeStock;
-    if (dto.autoDisableOutOfStockDishes !== undefined) {
-      changes.autoDisableOutOfStockDishes = dto.autoDisableOutOfStockDishes;
-    }
 
     if (Object.keys(changes).length === 0) return before;
 
@@ -720,7 +715,9 @@ export class InventoryService {
 
     for (const item of items) {
       // A cancelled line was never cooked, so nothing was used cooking it.
-      if (!isBillable(item) || item.dishId === null) continue;
+      // `wasMade`, not `isBillable`: a comped dish was cooked and eaten, so its
+      // ingredients leave the shelf exactly as a sold one's do.
+      if (!wasMade(item) || item.dishId === null) continue;
 
       const existing = totals.get(item.dishId);
 

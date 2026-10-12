@@ -45,5 +45,15 @@ export const canBill = (role: UserRole | undefined): boolean => allows(BILLING_R
 
 export const canWorkKitchen = (role: UserRole | undefined): boolean => allows(KITCHEN_ROLES, role);
 
+/**
+ * Erasing a no-charge bill for good.
+ *
+ * Owners, never managers. It is the one action in Plateo that destroys a record
+ * rather than marking it, and the API enforces the same rule - this only keeps
+ * the button off a screen that could not use it.
+ */
+export const canDeleteNcBill = (role: UserRole | undefined): boolean =>
+  allows(RESTAURANT_ADMIN_ROLES, role);
+
 /** The largest discount the API accepts, shown in the UI so the cap is not a surprise. */
 export const MAX_DISCOUNT_PERCENT = 50;

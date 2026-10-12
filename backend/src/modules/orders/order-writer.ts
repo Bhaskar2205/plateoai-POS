@@ -44,8 +44,8 @@ export function isDuplicateKeyError(error: unknown): boolean {
  */
 async function nextNumber(
   manager: EntityManager,
-  table: 'orders' | 'kot_tickets',
-  column: 'order_number' | 'ticket_number',
+  table: 'orders' | 'kot_tickets' | 'table_bookings',
+  column: 'order_number' | 'ticket_number' | 'reference_number',
   restaurantId: number,
   businessDate: string,
 ): Promise<number> {
@@ -62,6 +62,17 @@ export const nextOrderNumber = (manager: EntityManager, restaurantId: number, bu
 
 export const nextTicketNumber = (manager: EntityManager, restaurantId: number, businessDate: string) =>
   nextNumber(manager, 'kot_tickets', 'ticket_number', restaurantId, businessDate);
+
+/**
+ * Bookings number per day the same way bills do, so staff can say "booking 7"
+ * to each other. It has its own unique index, so `withNumberRetry` settles a
+ * race the same way it does for a bill.
+ */
+export const nextBookingReference = (
+  manager: EntityManager,
+  restaurantId: number,
+  businessDate: string,
+) => nextNumber(manager, 'table_bookings', 'reference_number', restaurantId, businessDate);
 
 /**
  * Runs an insert that claims a per-day number, retrying when another till claimed

@@ -182,6 +182,19 @@ export enum AuditAction {
   STOCK_COUNT_COMPLETED = 'STOCK_COUNT_COMPLETED',
   RECIPE_UPDATED = 'RECIPE_UPDATED',
   INVENTORY_MODE_CHANGED = 'INVENTORY_MODE_CHANGED',
+  ORDER_ITEM_COMPED = 'ORDER_ITEM_COMPED',
+  ORDER_ITEM_COMP_CLEARED = 'ORDER_ITEM_COMP_CLEARED',
+  ORDER_MARKED_NC = 'ORDER_MARKED_NC',
+  ORDER_NC_CLEARED = 'ORDER_NC_CLEARED',
+  /** A no-charge bill erased by an owner. The bill goes; this record stays. */
+  NC_ORDER_DELETED = 'NC_ORDER_DELETED',
+  BOOKING_CONFIRMED = 'BOOKING_CONFIRMED',
+  BOOKING_DECLINED = 'BOOKING_DECLINED',
+  BOOKING_SEATED = 'BOOKING_SEATED',
+  BOOKING_CLOSED = 'BOOKING_CLOSED',
+  RESTAURANT_ACCOUNT_CREATED = 'RESTAURANT_ACCOUNT_CREATED',
+  RESTAURANT_STATUS_CHANGED = 'RESTAURANT_STATUS_CHANGED',
+  OWNER_PASSWORD_RESET = 'OWNER_PASSWORD_RESET',
 }
 
 /** What an audit record is about, so the log can be filtered by the thing changed. */
@@ -193,6 +206,7 @@ export enum AuditEntity {
   RESTAURANT = 'RESTAURANT',
   PAYMENT = 'PAYMENT',
   INGREDIENT = 'INGREDIENT',
+  TABLE_BOOKING = 'TABLE_BOOKING',
 }
 
 /**
@@ -401,6 +415,36 @@ export enum InventoryConsumptionMode {
   ORDER_CONFIRMED = 'ORDER_CONFIRMED',
   ORDER_SERVED = 'ORDER_SERVED',
 }
+
+/**
+ * A table booked through the Plateo app.
+ *
+ * Walk-ins are not bookings - they are a waiter seating somebody, which the floor
+ * already handles. Everything here arrived from a guest's phone before they did.
+ */
+export enum TableBookingStatus {
+  /** The guest asked. Nobody has answered yet. */
+  REQUESTED = 'REQUESTED',
+  CONFIRMED = 'CONFIRMED',
+  /** The guest arrived and was sat down. */
+  SEATED = 'SEATED',
+  COMPLETED = 'COMPLETED',
+  /** The restaurant could not take it. */
+  DECLINED = 'DECLINED',
+  /** The guest called it off. */
+  CANCELLED = 'CANCELLED',
+  /** Confirmed, and nobody came. Kept apart from a cancellation on purpose: one
+   *  is a guest being considerate and the other is a table held for nothing. */
+  NO_SHOW = 'NO_SHOW',
+}
+
+/** Bookings that are no longer going anywhere. */
+export const CLOSED_BOOKING_STATUSES: TableBookingStatus[] = [
+  TableBookingStatus.COMPLETED,
+  TableBookingStatus.DECLINED,
+  TableBookingStatus.CANCELLED,
+  TableBookingStatus.NO_SHOW,
+];
 
 /** Roles allowed to mutate menu + restaurant data. */
 export const MENU_WRITE_ROLES: UserRole[] = [

@@ -20,7 +20,7 @@ export function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+export const today = () => new Date().toISOString().slice(0, 10);
 
 export const RANGE_PRESETS: Array<{ id: string; label: string; range: () => ReportRange }> = [
   { id: 'today', label: 'Today', range: () => ({ from: today(), to: today() }) },
