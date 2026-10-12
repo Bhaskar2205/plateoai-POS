@@ -7,6 +7,10 @@
  * quiet and the menu content (dish names, prices, photos) is what stands out.
  */
 @theme {
+  /* Set on the guest menu only - see app/menu/layout.tsx. Falls back to the
+     system serif anywhere the variable is not defined. */
+  --font-display: var(--font-display-face, ui-serif, Georgia, 'Times New Roman', serif);
+
   --color-ground: #faf9f6;
   --color-surface: #ffffff;
   --color-line: #e7e3da;

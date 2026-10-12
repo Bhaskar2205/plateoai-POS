@@ -134,9 +134,6 @@ export function DishImage({
       <div aria-hidden className={cn(shell, 'grid place-items-center', className)}>
         <div className="absolute inset-0 bg-gradient-to-br from-brand-50 via-ground to-saffron-50" />
         <UtensilsCrossed className="relative size-1/4 min-w-5 text-brand-600/25" />
-        <span className="absolute right-1.5 bottom-1 text-[10px] font-semibold tracking-wide text-muted/60 uppercase">
-          {dish.name.slice(0, 1)}
-        </span>
       </div>
     );
   }

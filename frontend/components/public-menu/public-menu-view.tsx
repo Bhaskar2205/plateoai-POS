@@ -278,7 +278,7 @@ export function PublicMenuView({
                     <div className="mb-3.5 flex items-center gap-3">
                       <h2
                         id={`${section.key}-title`}
-                        className="text-lg font-bold tracking-tight text-ink text-balance sm:text-xl"
+                        className="font-display text-xl font-semibold tracking-tight text-ink text-balance sm:text-2xl"
                       >
                         {section.name}
                       </h2>
@@ -290,7 +290,7 @@ export function PublicMenuView({
                       </span>
                     </div>
 
-                    <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    <ul className="grid gap-3 sm:gap-4 lg:grid-cols-2">
                       {section.dishes.map((dish) => (
                         <li key={dish.id}>
                           <DishCard dish={dish} money={money} onOpen={() => setOpenDish(dish)} />
@@ -348,23 +348,16 @@ export function PublicMenuView({
  * work. The API would refuse the request anyway.
  */
 function HowToOrder({ restaurantName }: { restaurantName: string }) {
+  // One line. It is a footnote about how to order, sitting directly above the
+  // food, and the earlier five-line version pushed the first dish off the screen
+  // on a phone to explain something most people work out by scanning the code.
   return (
-    <div className="mb-5 flex items-start gap-3 rounded-2xl border border-saffron-100 bg-saffron-50 px-4 py-3.5">
-      <span
-        aria-hidden
-        className="grid size-10 shrink-0 place-items-center rounded-xl bg-saffron-500/15 text-saffron-600"
-      >
-        <QrCode className="size-5" />
+    <p className="mb-4 flex items-center gap-2.5 rounded-xl border border-saffron-100 bg-saffron-50 px-3.5 py-2.5 text-xs text-muted">
+      <QrCode className="size-4 shrink-0 text-saffron-600" aria-hidden />
+      <span className="min-w-0">
+        Scan the code on your table at {restaurantName} to order — browse freely here.
       </span>
-      <div className="min-w-0 text-sm">
-        <p className="font-semibold text-ink">Browsing the menu</p>
-        <p className="mt-0.5 text-muted">
-          To order, scan the QR code on your table at {restaurantName} — it opens this menu with your
-          table attached, so what you choose reaches the right table. You can still look through
-          everything here.
-        </p>
-      </div>
-    </div>
+    </p>
   );
 }
 
@@ -428,7 +421,7 @@ function RestaurantHeader({
             <UtensilsCrossed className="size-3" aria-hidden />
             Menu
           </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight text-ink text-balance sm:text-3xl">
+          <h1 className="font-display mt-2 text-[26px] leading-tight font-semibold tracking-tight text-ink text-balance sm:text-4xl">
             {restaurant.name}
           </h1>
           {restaurant.description && (
@@ -478,19 +471,22 @@ function RestaurantHeader({
 /**
  * One dish, as a diner scans it.
  *
- * The photograph leads, at a size worth looking at. A menu is a shop window, and
- * a 110px thumbnail beside a paragraph of text sells nothing - a diner choosing
- * between two curries is choosing with their eyes first.
+ * A row, with the photograph on the right at a size worth looking at. The
+ * earlier version gave every dish a 4:3 photo frame whether or not it had a
+ * photo, on the reasoning that a menu is a shop window and uniform cards read as
+ * deliberate. The window argument is right; the uniform frame was not. Most
+ * restaurants photograph their menu gradually, and a menu of five dishes with
+ * one photograph became five screens of empty grey block with a cutlery icon in
+ * the middle - a diner scrolled past nothing to reach nothing.
  *
- * Every card is the same shape whether or not there is a photo. Most restaurants
- * photograph their menu gradually, and a grid where some cards are tall and some
- * are short reads as broken rather than as varied, so the placeholder fills the
- * same frame and carries the dish's own initial.
+ * So the frame is gone and the photo is optional. A dish with one shows it; a
+ * dish without simply gives its words the full width. Rows still line up, because
+ * what sets their height is the text every dish has rather than an image most of
+ * them do not.
  *
- * The photo and the name are one big tap target that opens the details, so a diner
- * who wants to know what is in something does not have to find a small link. Add
- * stays a separate target: ordering by accident while reading is worse than one
- * extra tap.
+ * The whole row opens the details, so a diner wanting to know what is in
+ * something does not have to find a small link. Add stays its own target:
+ * ordering by accident while reading is worse than one more tap.
  */
 function DishCard({
   dish,
@@ -504,116 +500,104 @@ function DishCard({
   const [imageFailed, setImageFailed] = useState(false);
   const hasPhoto = Boolean(dish.imageUrl) && !imageFailed;
 
-  const detailCount =
-    dish.ingredients.length + (dish.nutrition ? 1 : 0) + (dish.description ? 1 : 0);
-
   return (
     <article
       aria-labelledby={`dish-${dish.id}`}
-      className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card transition-all focus-within:border-brand-500/40 focus-within:shadow-raised hover:-translate-y-0.5 hover:border-brand-500/40 hover:shadow-raised"
+      className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-card transition-all focus-within:border-brand-500/40 focus-within:shadow-raised hover:border-brand-500/40 hover:shadow-raised"
     >
-      <button
-        type="button"
-        onClick={onOpen}
-        aria-label={`See what is in ${dish.name}`}
-        className="flex flex-1 flex-col text-left focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
-      >
-        <div className="relative">
-          <DishImage
-            dish={dish}
-            size="grid"
-            failed={imageFailed}
-            onFailed={() => setImageFailed(true)}
-            // 4:3 rather than square: food photographs are nearly always
-            // landscape, and a square crop cuts the plate.
-            className={cn(
-              'aspect-[4/3] w-full',
-              hasPhoto && 'transition-transform duration-300 group-hover:scale-[1.02]',
-            )}
-          />
-
-          {/* A wash at the foot of the photo, so white text stays readable over a
-              bright dish without dimming the food itself. Only over a real
-              photograph: on the placeholder it reads as a dark band across an
-              otherwise pale card, and it covers the fallback initial. */}
-          {hasPhoto && (
-            <div
-              aria-hidden
-              className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-ink/70 via-ink/25 to-transparent"
-            />
-          )}
-
-          <span
-            className={cn(
-              'absolute bottom-2.5 left-3 text-base font-bold tabular-nums',
-              hasPhoto ? 'text-white drop-shadow-sm' : 'text-ink',
-            )}
-          >
-            {money(dish.price)}
-          </span>
-
-          <div className="absolute top-2.5 left-3">
-            <DietMark
-              diet={dish.dietType}
-              className="shadow-sm ring-2 ring-white/70"
-            />
-          </div>
-
-          {dish.preparationTimeMinutes !== null && (
-            <span className="absolute top-2.5 right-3 inline-flex items-center gap-1 rounded-full bg-surface/90 px-2 py-0.5 text-[11px] font-medium text-ink shadow-sm backdrop-blur-sm">
-              <Clock className="size-3" aria-hidden />
-              <span className="sr-only">Usually ready in </span>
-              {dish.preparationTimeMinutes} min
-            </span>
-          )}
-        </div>
-
-        <div className="flex min-w-0 flex-1 flex-col px-3.5 pt-3">
-          <h3
-            id={`dish-${dish.id}`}
-            className="min-w-0 text-[15px] leading-snug font-semibold text-ink text-balance"
-          >
-            {dish.name}
-          </h3>
-
-          {dish.description && (
-            <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted">
-              {dish.description}
-            </p>
-          )}
-
-          <div className="mt-auto space-y-1.5 pt-2.5">
-            <CalorieChip dish={dish} />
-            {/* A hint of what is in it, before the diner even taps. */}
-            <IngredientGlyphs dish={dish} />
-          </div>
-        </div>
-      </button>
-
-      <div className="space-y-2.5 px-3.5 pt-2.5 pb-3.5">
-        <AllergenNotice allergens={dish.allergens} />
-
-        <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-1 items-start gap-3.5 p-3.5 sm:gap-4 sm:p-4">
+        <div className="flex min-w-0 flex-1 flex-col">
           <button
             type="button"
             onClick={onOpen}
-            className="inline-flex items-center gap-0.5 rounded-lg text-xs font-semibold text-brand-700 hover:text-brand-600 focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+            aria-label={`See what is in ${dish.name}`}
+            className="min-w-0 text-left focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
           >
-            {detailCount > 0 ? (
-              <>
-                <Sparkles className="mr-1 size-3.5" aria-hidden />
-                {dish.ingredients.length > 0
-                  ? `What's inside · ${dish.ingredients.length} ingredients`
-                  : 'Dish details'}
-              </>
-            ) : (
-              'Dish details'
+            <span className="flex items-start gap-2">
+              <DietMark diet={dish.dietType} className="mt-0.5 shrink-0" />
+              <h3
+                id={`dish-${dish.id}`}
+                className="min-w-0 text-[15px] leading-snug font-semibold text-ink text-balance sm:text-base"
+              >
+                {dish.name}
+              </h3>
+            </span>
+
+            {/* Under the name rather than over the photograph. On the old card a
+                long name and the price met in the same corner and overlapped. */}
+            <p className="mt-1 text-[15px] font-bold text-ink tabular-nums sm:text-base">
+              {money(dish.price)}
+            </p>
+
+            {dish.description && (
+              <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted sm:text-[13px]">
+                {dish.description}
+              </p>
             )}
-            <ChevronRight className="size-3.5" aria-hidden />
           </button>
 
-          <DishOrderControl dish={dish} />
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <CalorieChip dish={dish} />
+            {dish.preparationTimeMinutes !== null && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted tabular-nums">
+                <Clock className="size-3" aria-hidden />
+                <span className="sr-only">Usually ready in </span>
+                {dish.preparationTimeMinutes} min
+              </span>
+            )}
+          </div>
+
+          <div className="mt-2 space-y-2">
+            <IngredientGlyphs dish={dish} />
+            <AllergenNotice allergens={dish.allergens} />
+          </div>
+
+          <div className="mt-auto flex items-center justify-between gap-3 pt-3">
+            {/* Truncates rather than wrapping. At 390px a long label used to run
+                to a second line and shove itself into the Add button. */}
+            <button
+              type="button"
+              onClick={onOpen}
+              className="inline-flex min-w-0 items-center gap-0.5 rounded-lg text-xs font-semibold text-brand-700 hover:text-brand-600 focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+            >
+              {dish.ingredients.length > 0 ? (
+                <>
+                  <Sparkles className="mr-1 size-3.5 shrink-0" aria-hidden />
+                  <span className="truncate">
+                    {`What's inside · ${dish.ingredients.length} ingredients`}
+                  </span>
+                </>
+              ) : (
+                'Dish details'
+              )}
+              <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+            </button>
+
+            <span className="shrink-0">
+              <DishOrderControl dish={dish} />
+            </span>
+          </div>
         </div>
+
+        {/* Only when there is one. An empty frame sells nothing and costs a
+            third of the screen on the phone this is read on. */}
+        {hasPhoto && (
+          <button
+            type="button"
+            onClick={onOpen}
+            tabIndex={-1}
+            aria-hidden
+            className="shrink-0 focus-visible:outline-none"
+          >
+            <DishImage
+              dish={dish}
+              size="grid"
+              failed={imageFailed}
+              onFailed={() => setImageFailed(true)}
+              className="size-24 rounded-xl ring-1 ring-ink/5 transition-transform duration-300 group-hover:scale-[1.03] sm:size-28"
+            />
+          </button>
+        )}
       </div>
     </article>
   );
