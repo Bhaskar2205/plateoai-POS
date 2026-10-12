@@ -94,8 +94,16 @@ export const tokenStorage = {
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
-  /** Skip the Authorization header (register / login). */
+  /** Skip the Authorization header (sign-in routes). */
   anonymous?: boolean;
+  /**
+   * Use this token instead of the restaurant one.
+   *
+   * The platform panel keeps its own, under its own storage key: an administrator
+   * and a restaurant owner may both be signed in on the same browser, and one
+   * overwriting the other would sign somebody out without saying so.
+   */
+  token?: string | null;
   signal?: AbortSignal;
   /**
    * Marks this request as a repeat of the same operation if it is sent again.
@@ -122,8 +130,15 @@ export function newIdempotencyKey(): string {
 }
 
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, anonymous = false, signal, idempotencyKey } = options;
-  const token = anonymous ? null : tokenStorage.get();
+  const {
+    method = 'GET',
+    body,
+    anonymous = false,
+    signal,
+    idempotencyKey,
+    token: override,
+  } = options;
+  const token = anonymous ? null : (override ?? tokenStorage.get());
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
@@ -160,4 +175,48 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   }
 
   return payload as T;
+}
+
+/**
+ * The Plateo administrator's session.
+ *
+ * Its own storage key, deliberately. The two panels are different jobs on
+ * different subdomains, and sharing one key would mean signing into one silently
+ * signs you out of the other.
+ */
+const PLATFORM_TOKEN_KEY = 'plateo.platformAccessToken';
+
+export const platformTokenStorage = {
+  get(): string | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      return window.localStorage.getItem(PLATFORM_TOKEN_KEY);
+    } catch {
+      return null;
+    }
+  },
+  set(token: string): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(PLATFORM_TOKEN_KEY, token);
+    } catch {
+      // A browser with storage blocked still works for one session.
+    }
+  },
+  clear(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(PLATFORM_TOKEN_KEY);
+    } catch {
+      // Nothing to clean up.
+    }
+  },
+};
+
+/** `apiFetch` with the platform token rather than the restaurant one. */
+export function platformFetch<T>(
+  path: string,
+  options: Omit<RequestOptions, 'token'> = {},
+): Promise<T> {
+  return apiFetch<T>(path, { ...options, token: platformTokenStorage.get() });
 }

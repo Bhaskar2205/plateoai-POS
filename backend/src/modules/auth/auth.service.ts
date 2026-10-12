@@ -17,11 +17,10 @@ import { RestaurantUser } from 'src/modules/restaurants/entities/restaurant-user
 import { RestaurantsService } from 'src/modules/restaurants/restaurants.service';
 import { User } from 'src/modules/users/entities/user.entity';
 import { UsersService } from 'src/modules/users/users.service';
-import { AuthResponseDto, AuthUserDto, MeResponseDto } from './dto/auth-response.dto';
+import { AuthResponseDto, PlatformAuthResponseDto, AuthUserDto, MeResponseDto } from './dto/auth-response.dto';
 import { kitchenCodeFingerprint } from 'src/modules/restaurants/kitchen-code';
 import { KitchenSessionDto, KitchenSessionResponseDto } from './dto/kitchen-session.dto';
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
 
 @Injectable()
 export class AuthService {
@@ -36,55 +35,6 @@ export class AuthService {
     configService: ConfigService,
   ) {
     this.jwtConfig = configService.get<AppConfig['jwt']>('jwt')!;
-  }
-
-  /**
-   * Onboards an owner and their restaurant atomically.
-   *
-   * The user row, the restaurant row and the membership linking them are
-   * written in one transaction: a failure at any step leaves no orphan
-   * restaurant and no account that cannot reach one.
-   */
-  async register(dto: RegisterDto): Promise<AuthResponseDto> {
-    if (await this.usersService.emailExists(dto.email)) {
-      throw new ConflictException('An account with this email already exists.');
-    }
-
-    // Hashing is deliberately outside the transaction - it takes ~100ms and
-    // would otherwise hold a database connection open for no reason.
-    const passwordHash = await hashPassword(dto.password);
-
-    const { user, restaurant } = await this.dataSource.transaction(async (manager) => {
-      if (await this.usersService.emailExists(dto.email, manager)) {
-        throw new ConflictException('An account with this email already exists.');
-      }
-
-      const createdRestaurant = await this.restaurantsService.createRestaurant(
-        { name: dto.restaurantName, address: dto.address ?? null, phone: dto.phone ?? null },
-        manager,
-      );
-
-      const createdUser = await this.usersService.create(
-        {
-          name: dto.name,
-          email: dto.email,
-          passwordHash,
-          role: UserRole.RESTAURANT_OWNER,
-        },
-        manager,
-      );
-
-      await manager.getRepository(RestaurantUser).save(
-        manager.getRepository(RestaurantUser).create({
-          userId: createdUser.id,
-          restaurantId: createdRestaurant.id,
-        }),
-      );
-
-      return { user: createdUser, restaurant: createdRestaurant };
-    });
-
-    return this.buildAuthResponse(user, restaurant, [restaurant]);
   }
 
   /**
@@ -119,6 +69,47 @@ export class AuthService {
     return this.buildAuthResponse(user, active, restaurants);
   }
 
+  /**
+   * Signs in a Plateo administrator - the people who run the platform.
+   *
+   * Its own endpoint rather than a branch inside `login`, because the two have
+   * opposite invariants: a restaurant login must end up scoped to exactly one
+   * tenant, and this one must end up scoped to none. Folding them together would
+   * mean the tenant check became conditional, and a conditional tenant check is
+   * how a tenant check stops happening.
+   *
+   * The failure message does not distinguish "no such account" from "not an
+   * administrator": knowing which is which tells somebody probing the endpoint
+   * when they have found a real email.
+   */
+  async platformLogin(dto: LoginDto): Promise<PlatformAuthResponseDto> {
+    const user = await this.usersService.findByEmail(dto.email);
+
+    if (!user) {
+      await burnTimingDecoy();
+      throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    const passwordMatches = await verifyPassword(user.passwordHash, dto.password);
+
+    if (!passwordMatches || user.role !== UserRole.SUPER_ADMIN) {
+      throw new UnauthorizedException('Invalid email or password.');
+    }
+
+    const accessToken = await this.jwtService.signAsync({
+      sub: user.id,
+      email: user.email,
+      scope: 'platform',
+    });
+
+    return {
+      accessToken,
+      tokenType: 'Bearer',
+      expiresIn: AuthService.expiresInSeconds(this.jwtConfig.expiresIn),
+      user: AuthService.toAuthUser(user),
+    };
+  }
+
   /** Issues a token for a different restaurant the user belongs to. */
   async switchRestaurant(
     currentUser: AuthenticatedUser,
@@ -140,9 +131,13 @@ export class AuthService {
   async getProfile(currentUser: AuthenticatedUser): Promise<MeResponseDto> {
     const user = await this.usersService.getById(currentUser.id);
     const restaurants = await this.restaurantsService.findRestaurantsForUser(user.id);
+    // A platform administrator has no active restaurant, and asking for one by a
+    // null id would throw rather than return nothing.
     const active =
-      restaurants.find((restaurant) => restaurant.id === currentUser.restaurantId) ??
-      (await this.restaurantsService.findById(currentUser.restaurantId));
+      currentUser.restaurantId === null
+        ? null
+        : (restaurants.find((restaurant) => restaurant.id === currentUser.restaurantId) ??
+          (await this.restaurantsService.findById(currentUser.restaurantId)));
 
     return {
       user: AuthService.toAuthUser(user),

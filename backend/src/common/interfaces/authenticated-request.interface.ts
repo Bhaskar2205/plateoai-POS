@@ -14,7 +14,13 @@ export interface AuthenticatedUser {
   email: string;
   name: string;
   role: UserRole;
-  restaurantId: number;
+  /**
+   * Null for a platform administrator, who runs Plateo rather than a restaurant
+   * and belongs to none. `ActiveRestaurantId` already refuses a falsy value, so a
+   * platform token that reaches a restaurant-scoped route fails loudly instead of
+   * quietly reading somebody's tenant.
+   */
+  restaurantId: number | null;
   /**
    * True when the caller is a kitchen screen signed in with a kitchen code
    * rather than a person signed in with an account. There is no user row behind

@@ -49,8 +49,9 @@ export class MeResponseDto {
   @ApiProperty({ type: AuthUserDto })
   user: AuthUserDto;
 
-  @ApiProperty({ type: Restaurant })
-  restaurant: Restaurant;
+  /** Null for a Plateo administrator, who belongs to no restaurant. */
+  @ApiProperty({ type: Restaurant, nullable: true })
+  restaurant: Restaurant | null;
 
   @ApiProperty({ type: [Restaurant] })
   restaurants: Restaurant[];
@@ -64,4 +65,25 @@ export class LogoutResponseDto {
     example: 'Discard the access token on the client. It stays valid until it expires.',
   })
   message: string;
+}
+
+/**
+ * A Plateo administrator's session.
+ *
+ * Deliberately carries no restaurant, and no list of them. A platform admin is
+ * not a member of anything; naming a restaurant here would invite a client to
+ * treat the token as scoped to it, which it is not.
+ */
+export class PlatformAuthResponseDto {
+  @ApiProperty()
+  accessToken: string;
+
+  @ApiProperty({ example: 'Bearer' })
+  tokenType: string;
+
+  @ApiProperty({ example: 86400 })
+  expiresIn: number;
+
+  @ApiProperty({ type: AuthUserDto })
+  user: AuthUserDto;
 }

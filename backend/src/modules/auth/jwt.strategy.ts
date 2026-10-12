@@ -14,10 +14,14 @@ export interface JwtPayload {
   /** User id. Absent on a kitchen screen token, which has no account behind it. */
   sub?: number;
   email?: string;
-  /** Active restaurant id - the tenant this token is scoped to. */
-  rid: number;
-  /** `kitchen` for a screen signed in with a kitchen code. */
-  scope?: 'kitchen';
+  /** Active restaurant id - the tenant this token is scoped to. Absent on a
+   *  platform token, which is not scoped to one. */
+  rid?: number;
+  /**
+   * `kitchen` for a screen signed in with a kitchen code; `platform` for a
+   * Plateo administrator, who runs the platform rather than a restaurant.
+   */
+  scope?: 'kitchen' | 'platform';
   /** Fingerprint of the kitchen code the screen signed in with. */
   kcv?: string;
 }
@@ -54,6 +58,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       return this.validateKitchenDevice(payload);
     }
 
+    if (payload?.scope === 'platform') {
+      return this.validatePlatformAdmin(payload);
+    }
+
     if (!payload?.sub || !payload?.rid) {
       throw new UnauthorizedException('Malformed access token.');
     }
@@ -85,6 +93,42 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       name: user.name,
       role: user.role,
       restaurantId: payload.rid,
+    };
+  }
+
+  /**
+   * A Plateo administrator: an account, no restaurant.
+   *
+   * The role is re-read from the database on every request rather than trusted
+   * from the token, so demoting somebody takes effect at once instead of when
+   * their token expires - the same rule the restaurant path follows.
+   *
+   * `restaurantId` is null, and that is the safety property: every tenant-scoped
+   * route reads its scope through `ActiveRestaurantId`, which refuses a falsy
+   * value. A platform token therefore cannot be pointed at a restaurant, even by
+   * accident, and platform routes carry no tenant filter to forget.
+   */
+  private async validatePlatformAdmin(payload: JwtPayload): Promise<AuthenticatedUser> {
+    if (!payload?.sub) {
+      throw new UnauthorizedException('Malformed access token.');
+    }
+
+    const user = await this.usersService.findById(payload.sub);
+
+    if (!user) {
+      throw new UnauthorizedException('The account for this token no longer exists.');
+    }
+
+    if (user.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('This account is not a Plateo administrator.');
+    }
+
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      restaurantId: null,
     };
   }
 

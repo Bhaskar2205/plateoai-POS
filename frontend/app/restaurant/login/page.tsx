@@ -96,10 +96,7 @@ export default function LoginPage() {
         </form>
 
         <p className="text-center text-sm text-muted">
-          New to Plateo?{' '}
-          <Link href="/restaurant/register" className="font-medium text-brand-600 hover:underline">
-            Register your restaurant
-          </Link>
+          Plateo accounts are set up for you. Contact Plateo to get your restaurant on board.
         </p>
       </div>
     </main>

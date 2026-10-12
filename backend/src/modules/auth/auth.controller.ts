@@ -15,10 +15,9 @@ import { CredentialThrottle } from 'src/common/throttling';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-request.interface';
 import { AuthService } from './auth.service';
-import { AuthResponseDto, LogoutResponseDto, MeResponseDto } from './dto/auth-response.dto';
+import { AuthResponseDto, PlatformAuthResponseDto, LogoutResponseDto, MeResponseDto } from './dto/auth-response.dto';
 import { KitchenSessionDto, KitchenSessionResponseDto } from './dto/kitchen-session.dto';
 import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
 import { SwitchRestaurantDto } from './dto/switch-restaurant.dto';
 
 @ApiTags('Authentication')
@@ -26,21 +25,30 @@ import { SwitchRestaurantDto } from './dto/switch-restaurant.dto';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  /**
+   * There is no public registration.
+   *
+   * A restaurant comes to exist on Plateo when somebody at Plateo opens the
+   * account - see `POST /platform/restaurants`. That makes the tenant list the
+   * customer list rather than whoever found a sign-up form, and it stops a
+   * stranger taking a restaurant's name or public slug by registering first.
+   */
   @Public()
-  @Post('register')
-  @HttpCode(HttpStatus.CREATED)
+  @Post('platform/login')
+  @HttpCode(HttpStatus.OK)
   @CredentialThrottle()
   @ApiOperation({
-    summary: 'Register a restaurant owner and their restaurant',
+    summary: 'Sign in as a Plateo administrator',
     description:
-      'Creates the restaurant, the owner account and the membership linking them inside a single ' +
-      'database transaction, then returns a ready-to-use access token.',
+      'Issues a token scoped to the platform rather than to a restaurant. Its own endpoint ' +
+      'because the invariants are opposite: a restaurant login must end up scoped to exactly ' +
+      'one tenant, and this one to none.',
   })
-  @ApiCreatedResponse({ type: AuthResponseDto })
-  @ApiConflictResponse({ description: 'Email already registered.', type: ErrorResponseDto })
+  @ApiOkResponse({ type: PlatformAuthResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Invalid credentials.', type: ErrorResponseDto })
   @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.', type: ErrorResponseDto })
-  register(@Body() dto: RegisterDto): Promise<AuthResponseDto> {
-    return this.authService.register(dto);
+  platformLogin(@Body() dto: LoginDto): Promise<PlatformAuthResponseDto> {
+    return this.authService.platformLogin(dto);
   }
 
   @Public()
