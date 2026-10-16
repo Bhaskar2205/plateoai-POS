@@ -16,6 +16,7 @@ import { IngredientsModule } from './modules/ingredients/ingredients.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { BookingsModule } from './modules/bookings/bookings.module';
 import { PlatformModule } from './modules/platform/platform.module';
+import { StaffModule } from './modules/staff/staff.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { TaxesModule } from './modules/taxes/taxes.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -60,6 +61,7 @@ import { UsersModule } from './modules/users/users.module';
     InventoryModule,
     BookingsModule,
     PlatformModule,
+    StaffModule,
     DishesModule,
     PublicMenuModule,
     TablesModule,

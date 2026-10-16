@@ -9,6 +9,15 @@ import type { NextConfig } from 'next';
  */
 const ADMIN_HOST = process.env.NEXT_PUBLIC_ADMIN_HOST ?? 'admin.plateoai.in';
 
+/**
+ * The host the floor signs in on.
+ *
+ * Its own address rather than a path on the restaurant app, because a captain
+ * types it into a phone at the start of a shift and "captain.plateoai.in" is
+ * something you can say across a kitchen.
+ */
+const CAPTAIN_HOST = process.env.NEXT_PUBLIC_CAPTAIN_HOST ?? 'captain.plateoai.in';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   typedRoutes: true,
@@ -36,6 +45,11 @@ const nextConfig: NextConfig = {
           source: '/',
           has: [{ type: 'host', value: ADMIN_HOST }],
           destination: '/platform',
+        },
+        {
+          source: '/',
+          has: [{ type: 'host', value: CAPTAIN_HOST }],
+          destination: '/captain',
         },
       ],
       afterFiles: [],

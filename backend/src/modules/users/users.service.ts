@@ -26,6 +26,14 @@ export class UsersService {
     return this.usersRepository.findOne({ where: { email: email.trim().toLowerCase() } });
   }
 
+  /**
+   * How floor staff are found at sign-in. Codes are stored and compared folded
+   * to lower case, so a captain typing RAMESH at a table still gets in.
+   */
+  findByStaffCode(staffCode: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { staffCode: staffCode.trim().toLowerCase() } });
+  }
+
   findById(id: number): Promise<User | null> {
     return this.usersRepository.findOne({ where: { id } });
   }

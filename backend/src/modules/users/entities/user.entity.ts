@@ -44,6 +44,30 @@ export class User {
   @Column({ type: 'varchar', length: 32, default: UserRole.RESTAURANT_OWNER })
   role: UserRole;
 
+  /**
+   * How floor staff sign in: a short code instead of an email address.
+   *
+   * Unique across Plateo, not per restaurant, because every restaurant's
+   * captains share one sign-in page and nothing in that form says which
+   * restaurant is being signed in to.
+   *
+   * Null for everybody who signs in with an address, which is every owner and
+   * manager. A unique index permits many nulls, so that costs nothing.
+   */
+  @Index('UQ_users_staff_code', { unique: true })
+  @Column({ type: 'varchar', length: 32, name: 'staff_code', nullable: true })
+  staffCode: string | null;
+
+  /**
+   * Switched off rather than deleted when somebody leaves.
+   *
+   * Deleting would take their name off every bill they opened and rewrite the
+   * month's staff report; this stops the logins and leaves the history alone.
+   */
+  @ApiProperty({ example: true })
+  @Column({ type: 'boolean', name: 'is_active', default: true })
+  isActive: boolean;
+
   @ApiProperty()
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

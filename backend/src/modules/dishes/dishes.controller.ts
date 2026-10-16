@@ -27,7 +27,7 @@ import type { AuditContext } from 'src/modules/audit/audit.service';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
-import { MENU_WRITE_ROLES } from 'src/common/enums';
+import { MENU_WRITE_ROLES, ORDER_WRITE_ROLES } from 'src/common/enums';
 import { DishIngredientsService } from './dish-ingredients.service';
 import { DishesService } from './dishes.service';
 import { CreateDishDto, UpdateDishDto } from './dto/create-dish.dto';
@@ -35,6 +35,7 @@ import {
   DishIngredientResponseDto,
   SetDishIngredientsDto,
 } from './dto/dish-ingredients.dto';
+import { OrderBoardDishDto } from './dto/order-board.dto';
 import { QueryDishDto } from './dto/query-dish.dto';
 import { Dish } from './entities/dish.entity';
 
@@ -76,6 +77,31 @@ export class DishesController {
     @Query() query: QueryDishDto,
   ): Promise<Dish[]> {
     return this.dishesService.findAll(restaurantId, query);
+  }
+
+  /**
+   * The order board: what a captain needs to punch, and nothing else.
+   *
+   * Declared before `:id` so the literal path wins the match.
+   *
+   * Deliberately not the dish row. A dish carries a description, a photo URL,
+   * allergens and nutrition - useful to a guest deciding, useless to a waiter
+   * who already knows the menu and is standing at a table on mobile data. A
+   * hundred dishes at full width is most of a megabyte; this is a few
+   * kilobytes, and it is the difference between an app that opens during a rush
+   * and one that gets abandoned.
+   *
+   * Readable by anyone who may take an order, which includes waiters.
+   */
+  @Get('board')
+  @Roles(...ORDER_WRITE_ROLES)
+  @ApiOperation({
+    summary: 'A slim menu for taking orders',
+    description: 'Name, price, course and veg mark only. Unavailable dishes are left out.',
+  })
+  @ApiOkResponse({ type: [OrderBoardDishDto] })
+  board(@ActiveRestaurantId() restaurantId: number): Promise<OrderBoardDishDto[]> {
+    return this.dishesService.orderBoard(restaurantId);
   }
 
   @Get(':id')

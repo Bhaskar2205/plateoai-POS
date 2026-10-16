@@ -5,6 +5,7 @@ import { CategoriesService } from 'src/modules/categories/categories.service';
 import { IngredientsService } from 'src/modules/ingredients/ingredients.service';
 import { assertIngredientsOwned, replaceRecipe } from './dish-recipe.writer';
 import { CreateDishDto, UpdateDishDto } from './dto/create-dish.dto';
+import { OrderBoardDishDto } from './dto/order-board.dto';
 import { QueryDishDto } from './dto/query-dish.dto';
 import {
   AuditAction,
@@ -70,6 +71,49 @@ export class DishesService {
     });
 
     return this.findOne(restaurantId, saved.id);
+  }
+
+  /**
+   * The slim menu a captain punches from.
+   *
+   * Selects columns rather than whole rows: the point of this endpoint is that
+   * it is small, and loading entities would quietly send the description, the
+   * photo URL, the allergens and the nutrition of every dish to a phone on
+   * mobile data during service.
+   *
+   * Unavailable dishes are left out entirely rather than greyed out. A captain
+   * cannot order one, so showing it is a line that can only disappoint a guest
+   * who has already asked for it.
+   */
+  async orderBoard(restaurantId: number): Promise<OrderBoardDishDto[]> {
+    const rows = await this.dishesRepository.find({
+      where: { restaurantId, isAvailable: true },
+      relations: { category: true },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        dietType: true,
+        category: { id: true, name: true, sortOrder: true },
+      },
+    });
+
+    return rows
+      .sort((a, b) => {
+        // Courses in the order the restaurant arranged them, so the board reads
+        // like their menu rather than like the database.
+        const left = a.category?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+        const right = b.category?.sortOrder ?? Number.MAX_SAFE_INTEGER;
+
+        return left === right ? a.name.localeCompare(b.name) : left - right;
+      })
+      .map((dish) => ({
+        id: dish.id,
+        name: dish.name,
+        price: dish.price,
+        categoryName: dish.category?.name ?? null,
+        dietType: dish.dietType,
+      }));
   }
 
   findAll(restaurantId: number, query: QueryDishDto = {}): Promise<Dish[]> {

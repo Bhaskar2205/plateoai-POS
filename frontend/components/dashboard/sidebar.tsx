@@ -10,6 +10,7 @@ import {
   LogOut,
   Percent,
   QrCode,
+  UserRound,
   Receipt,
   ScrollText,
   Settings,
@@ -54,6 +55,8 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       // owner-only, so a waiter sees the tables without the QR controls.
       { href: '/restaurant/tables', label: 'Tables', icon: Armchair, roles: ORDER_WRITE_ROLES },
       { href: '/restaurant/qr-codes', label: 'QR Codes', icon: QrCode, roles: TABLE_ADMIN_ROLES },
+      // Who may take orders, and what they sign in with on their own phone.
+      { href: '/restaurant/captains', label: 'Captain App', icon: UserRound, roles: TABLE_ADMIN_ROLES },
       { href: '/restaurant/orders', label: 'Bills', icon: Receipt, roles: ORDER_WRITE_ROLES },
       // Arrives from the Plateo guest app rather than from the floor, and is
       // answered by whoever takes orders.

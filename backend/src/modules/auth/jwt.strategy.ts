@@ -72,6 +72,13 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException('The account for this token no longer exists.');
     }
 
+    // Checked on every request, not only at sign-in: a captain switched off
+    // mid-shift should stop being able to punch immediately, not whenever their
+    // token happens to expire.
+    if (!user.isActive) {
+      throw new UnauthorizedException('This account has been switched off.');
+    }
+
     const restaurant = await this.restaurantsService.findMembershipRestaurant(
       user.id,
       payload.rid,

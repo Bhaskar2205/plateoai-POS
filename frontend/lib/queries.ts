@@ -47,6 +47,9 @@ import type {
   SectionSales,
   StaffSales,
   TableOrderSummary,
+  UserRole,
+  StaffMember,
+  OrderBoardDish,
   TableSales,
   TaxComponent,
   TaxGroup,
@@ -67,6 +70,8 @@ export const queryKeys = {
   ingredients: ['ingredients'] as const,
   dishIngredients: (dishId: number) => ['dishes', dishId, 'ingredients'] as const,
   tables: ['tables'] as const,
+  staff: ['staff'] as const,
+  orderBoard: ['order-board'] as const,
   floor: ['floor'] as const,
   orders: ['orders'] as const,
   order: (id: number) => ['orders', id] as const,
@@ -1318,3 +1323,75 @@ export const useNoShowBooking = (
 export const useCancelBooking = (
   options?: UseMutationOptions<TableBooking, Error, BookingActionPayload>,
 ) => useBookingAction('cancel', options);
+
+// --- The floor, and the captain app ------------------------------------------
+
+/**
+ * The slim menu a captain punches from.
+ *
+ * Cached hard: a menu changes between services, not between tables, and a
+ * waiter refetching the whole board every time they open a bill is the thing
+ * that makes an app feel slow on a restaurant's wifi.
+ */
+export const useOrderBoard = ({ enabled = true }: { enabled?: boolean } = {}) =>
+  useQuery({
+    queryKey: queryKeys.orderBoard,
+    queryFn: () => apiFetch<OrderBoardDish[]>('/dishes/board'),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+
+export const useStaff = ({ enabled = true }: { enabled?: boolean } = {}) =>
+  useQuery({
+    queryKey: queryKeys.staff,
+    queryFn: () => apiFetch<StaffMember[]>('/restaurants/me/staff'),
+    enabled,
+  });
+
+export interface CreateStaffPayload {
+  name: string;
+  code: string;
+  password: string;
+  role: UserRole;
+}
+
+const useStaffMutation = <TPayload,>(
+  run: (payload: TPayload) => Promise<unknown>,
+  options?: UseMutationOptions<unknown, Error, TPayload>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    ...options,
+    mutationFn: run,
+    onSuccess: (data, variables, context, mutation) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.staff });
+      options?.onSuccess?.(data, variables, context, mutation);
+    },
+  });
+};
+
+export const useCreateStaff = (options?: UseMutationOptions<unknown, Error, CreateStaffPayload>) =>
+  useStaffMutation(
+    (body: CreateStaffPayload) =>
+      apiFetch<StaffMember>('/restaurants/me/staff', { method: 'POST', body }),
+    options,
+  );
+
+export const useUpdateStaff = (
+  options?: UseMutationOptions<unknown, Error, { id: number; name?: string; role?: UserRole; isActive?: boolean }>,
+) =>
+  useStaffMutation(
+    ({ id, ...body }: { id: number; name?: string; role?: UserRole; isActive?: boolean }) =>
+      apiFetch<StaffMember>(`/restaurants/me/staff/${id}`, { method: 'PATCH', body }),
+    options,
+  );
+
+export const useResetStaffPassword = (
+  options?: UseMutationOptions<unknown, Error, { id: number; password: string }>,
+) =>
+  useStaffMutation(
+    ({ id, password }: { id: number; password: string }) =>
+      apiFetch<void>(`/restaurants/me/staff/${id}/password`, { method: 'POST', body: { password } }),
+    options,
+  );

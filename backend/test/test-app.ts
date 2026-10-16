@@ -30,6 +30,7 @@ import { IngredientsModule } from 'src/modules/ingredients/ingredients.module';
 import { InventoryModule } from 'src/modules/inventory/inventory.module';
 import { BookingsModule } from 'src/modules/bookings/bookings.module';
 import { PlatformModule } from 'src/modules/platform/platform.module';
+import { StaffModule } from 'src/modules/staff/staff.module';
 import { PublicMenuModule } from 'src/modules/public-menu/public-menu.module';
 import { RestaurantsModule } from 'src/modules/restaurants/restaurants.module';
 import { OrdersModule } from 'src/modules/orders/orders.module';
@@ -139,6 +140,7 @@ function testDatabaseOptions(): TypeOrmModuleOptions {
     InventoryModule,
     BookingsModule,
     PlatformModule,
+    StaffModule,
     DishesModule,
     PublicMenuModule,
     TablesModule,

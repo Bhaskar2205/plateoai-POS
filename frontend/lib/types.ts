@@ -813,3 +813,30 @@ export interface TableBooking {
   createdAt: string;
   updatedAt: string;
 }
+
+// --- The floor, and the captain app ------------------------------------------
+
+/** One person who works at the restaurant, as the POS lists them. */
+export interface StaffMember {
+  id: number;
+  name: string;
+  /** Null for accounts that sign in with an email rather than a code. */
+  code: string | null;
+  role: UserRole;
+  isActive: boolean;
+  joinedAt: string;
+}
+
+/**
+ * One dish on a captain's order board.
+ *
+ * Deliberately small: a waiter knows the menu, so the app sends names and prices
+ * rather than descriptions, photos and nutrition over mobile data mid-service.
+ */
+export interface OrderBoardDish {
+  id: number;
+  name: string;
+  price: number;
+  categoryName: string | null;
+  dietType: DietType | null;
+}

@@ -17,7 +17,7 @@ import type { AuthenticatedUser } from 'src/common/interfaces/authenticated-requ
 import { AuthService } from './auth.service';
 import { AuthResponseDto, PlatformAuthResponseDto, LogoutResponseDto, MeResponseDto } from './dto/auth-response.dto';
 import { KitchenSessionDto, KitchenSessionResponseDto } from './dto/kitchen-session.dto';
-import { LoginDto } from './dto/login.dto';
+import { LoginDto, StaffLoginDto } from './dto/login.dto';
 import { SwitchRestaurantDto } from './dto/switch-restaurant.dto';
 
 @ApiTags('Authentication')
@@ -33,6 +33,30 @@ export class AuthController {
    * customer list rather than whoever found a sign-up form, and it stops a
    * stranger taking a restaurant's name or public slug by registering first.
    */
+  /**
+   * A captain signing in from their own phone, with a code instead of an email.
+   *
+   * Same throttle as every other credential route. Codes are short, which makes
+   * them pleasant to type at a table and cheap to guess at, so the limiter is
+   * doing more work here than it does on an email login.
+   */
+  @Public()
+  @Post('staff/login')
+  @HttpCode(HttpStatus.OK)
+  @CredentialThrottle()
+  @ApiOperation({
+    summary: 'Sign in as floor staff',
+    description:
+      'For the captain app. Returns the same token a restaurant login does, scoped to the one ' +
+      'restaurant the captain belongs to, so every order they punch is recorded against them.',
+  })
+  @ApiOkResponse({ type: AuthResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Invalid credentials.', type: ErrorResponseDto })
+  @ApiTooManyRequestsResponse({ description: 'Rate limit exceeded.', type: ErrorResponseDto })
+  staffLogin(@Body() dto: StaffLoginDto): Promise<AuthResponseDto> {
+    return this.authService.staffLogin(dto);
+  }
+
   @Public()
   @Post('platform/login')
   @HttpCode(HttpStatus.OK)

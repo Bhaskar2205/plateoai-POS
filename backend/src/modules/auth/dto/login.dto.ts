@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsEmail, IsInt, IsOptional, IsString, Length, IsPositive } from 'class-validator';
+import { IsEmail, IsInt, IsOptional, IsString, Length, MaxLength, IsPositive } from 'class-validator';
 
 export class LoginDto {
   @ApiProperty({ example: 'owner@example.com' })
@@ -25,4 +25,24 @@ export class LoginDto {
   @IsInt()
   @IsPositive()
   restaurantId?: number;
+}
+
+/**
+ * A captain signing in from their phone.
+ *
+ * No restaurant field: the code identifies the person across Plateo, and asking
+ * a waiter to type a restaurant as well as a code and a password, at a table,
+ * every shift, is how a floor ends up sharing one login.
+ */
+export class StaffLoginDto {
+  @ApiProperty({ example: 'ramesh', minLength: 3, maxLength: 32 })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toLowerCase() : value))
+  @IsString()
+  @Length(3, 32)
+  code: string;
+
+  @ApiProperty({ example: 'Shift2026!' })
+  @IsString()
+  @MaxLength(128)
+  password: string;
 }

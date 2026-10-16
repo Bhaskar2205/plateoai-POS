@@ -20,7 +20,7 @@ import { UsersService } from 'src/modules/users/users.service';
 import { AuthResponseDto, PlatformAuthResponseDto, AuthUserDto, MeResponseDto } from './dto/auth-response.dto';
 import { kitchenCodeFingerprint } from 'src/modules/restaurants/kitchen-code';
 import { KitchenSessionDto, KitchenSessionResponseDto } from './dto/kitchen-session.dto';
-import { LoginDto } from './dto/login.dto';
+import { LoginDto, StaffLoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
@@ -64,6 +64,48 @@ export class AuthService {
     }
 
     const active = this.resolveActiveRestaurant(restaurants, dto.restaurantId);
+    AuthService.assertRestaurantReachable(active, user);
+
+    return this.buildAuthResponse(user, active, restaurants);
+  }
+
+  /**
+   * Signs a captain in from their own phone, with a code instead of an address.
+   *
+   * Every restaurant's floor staff share one sign-in page, so the code is unique
+   * across Plateo rather than per restaurant - there is nothing in the form to
+   * say which restaurant a "ramesh" belongs to.
+   *
+   * A captain belongs to exactly one restaurant in practice, but the lookup goes
+   * through the same membership path as every other login rather than trusting
+   * the code to imply a tenant. If that ever stops being true, this picks the
+   * first membership rather than inventing a rule nobody asked for.
+   *
+   * One message for every failure - unknown code, wrong password, switched off.
+   * Telling them apart tells somebody probing when they have found a real code,
+   * and codes are short enough to guess at.
+   */
+  async staffLogin(dto: StaffLoginDto): Promise<AuthResponseDto> {
+    const user = await this.usersService.findByStaffCode(dto.code);
+
+    if (!user) {
+      await burnTimingDecoy();
+      throw new UnauthorizedException('Invalid code or password.');
+    }
+
+    const passwordMatches = await verifyPassword(user.passwordHash, dto.password);
+
+    if (!passwordMatches || !user.isActive) {
+      throw new UnauthorizedException('Invalid code or password.');
+    }
+
+    const restaurants = await this.restaurantsService.findRestaurantsForUser(user.id);
+
+    if (restaurants.length === 0) {
+      throw new ForbiddenException('This account is not linked to any restaurant.');
+    }
+
+    const active = this.resolveActiveRestaurant(restaurants, undefined);
     AuthService.assertRestaurantReachable(active, user);
 
     return this.buildAuthResponse(user, active, restaurants);
