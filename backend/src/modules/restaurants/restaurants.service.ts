@@ -90,7 +90,7 @@ export class RestaurantsService {
 
   /** Creates the restaurant row. Called inside the registration transaction. */
   async createRestaurant(
-    input: { name: string; address?: string | null; phone?: string | null },
+    input: { name: string; address?: string | null; phone?: string | null; taxNumber?: string | null },
     manager: EntityManager,
   ): Promise<Restaurant> {
     const repository = manager.getRepository(Restaurant);
@@ -108,7 +108,11 @@ export class RestaurantsService {
       // A new restaurant bills exactly what its menu says until an owner
       // configures tax, so this is 0 rather than any regional default.
       taxRate: 0,
-      taxNumber: null,
+      // Set when Plateo opens the account for a restaurant that is already
+      // registered, so its very first bill is a valid tax invoice. A bill
+      // issued without it is not one, and reissuing a week of them because a
+      // profile field went unfilled is a bad first week.
+      taxNumber: input.taxNumber?.trim() || null,
       kitchenCode: await this.unusedKitchenCode(manager),
     });
 

@@ -14,11 +14,24 @@ import type { Bill, KotPrint } from './types';
  * aligned columns are what makes a ticket readable at a glance across a kitchen.
  */
 
+/** An 80mm roll prints about 72mm; the rest is the printer's own margin. */
+const ROLL_WIDTH_MM = 80;
+const CONTENT_WIDTH_MM = 72;
+
+/** CSS pixels are 96 to the inch by definition, whatever the screen does. */
+const PX_PER_MM = 96 / 25.4;
+
+/**
+ * A little paper after the last line, so a cutter does not clip the footer.
+ * Thermal rolls are continuous, so this costs millimetres rather than a sheet.
+ */
+const TAIL_MM = 4;
+
 const PAPER_CSS = `
-  @page { size: 80mm auto; margin: 0; }
+  @page { margin: 0; }
   html, body { margin: 0; background: #fff; }
   body {
-    width: 72mm;
+    width: ${CONTENT_WIDTH_MM}mm;
     padding: 3mm;
     font-family: "Courier New", ui-monospace, monospace;
     font-size: 12px;
@@ -41,6 +54,32 @@ const PAPER_CSS = `
   .grand td { font-size: 14px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; }
   .foot { text-align: center; font-size: 11px; margin-top: 3mm; }
 `;
+
+/**
+ * Waits until the frame has actually laid out, so a measurement means something.
+ *
+ * Fonts are the reason this is not a single frame: a receipt measured before the
+ * monospace face loads is measured against a fallback with different metrics,
+ * and comes out a few millimetres short - which on a thermal roll clips the
+ * footer. `fonts.ready` covers it where it exists, and two animation frames
+ * cover the browsers where it does not.
+ */
+async function whenLaidOut(frame: HTMLIFrameElement): Promise<void> {
+  const win = frame.contentWindow;
+  const doc = frame.contentDocument;
+
+  if (!win || !doc) return;
+
+  try {
+    await doc.fonts?.ready;
+  } catch {
+    // An older browser without the font loading API still prints.
+  }
+
+  await new Promise<void>((resolve) =>
+    win.requestAnimationFrame(() => win.requestAnimationFrame(() => resolve())),
+  );
+}
 
 const escapeHtml = (value: string) =>
   value.replace(
@@ -95,6 +134,24 @@ async function printHtml(title: string, bodyHtml: string): Promise<void> {
   doc.open();
   doc.write(html);
   doc.close();
+
+  // The page has to be told how tall it is.
+  //
+  // CSS has no way to say "as tall as the content" in paged media: `size` takes
+  // lengths or the keyword `auto`, never both, so the `80mm auto` this used to
+  // carry was invalid and silently dropped - which is why a six-line receipt
+  // came out on a full sheet with a hand of blank paper under it. So the content
+  // is measured once it has laid out, and the page is cut to fit.
+  await whenLaidOut(frame);
+
+  const heightMm = Math.max(
+    20,
+    Math.ceil((doc.body.scrollHeight / PX_PER_MM) + TAIL_MM),
+  );
+
+  const page = doc.createElement('style');
+  page.textContent = `@page { size: ${ROLL_WIDTH_MM}mm ${heightMm}mm; margin: 0; }`;
+  doc.head.appendChild(page);
 
   const cleanup = () => setTimeout(() => frame.remove(), 500);
   win.addEventListener('afterprint', cleanup, { once: true });

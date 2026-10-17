@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { formatMoney } from '@/lib/format';
 import { tokenStorage } from '@/lib/api';
+import { useAuth } from '@/lib/auth-context';
 import {
   useAddOrderItems,
   useCancelOrderItem,
@@ -48,10 +49,33 @@ export default function CaptainPage() {
   const [remaining, setRemaining] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const signedIn = typeof window !== 'undefined' && tokenStorage.get() !== null;
+  /**
+   * Null until the browser has been asked.
+   *
+   * The token lives in this device's storage, which the server cannot see, so
+   * the server cannot know whether anybody is signed in. Reading it during
+   * render - `typeof window !== 'undefined' && ...` - makes the first client
+   * render disagree with the HTML it is replacing, and React throws out the
+   * whole tree and rebuilds it. So the first render says "I do not know yet" on
+   * both sides, and the answer arrives in an effect, which only ever runs in a
+   * browser.
+   */
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
-  const floor = useFloor({ enabled: signedIn });
-  const board = useOrderBoard({ enabled: signedIn });
+  /**
+   * Who is actually signed in.
+   *
+   * Shown in the header because on one origin - localhost, or
+   * app.plateoai.in/captain - this app shares the browser's storage with the
+   * POS. An owner already signed in there walks straight into this app, which
+   * is not wrong (an owner may take orders) but is deeply confusing when you
+   * expected to be asked for a code. Naming them answers that before it is
+   * asked.
+   */
+  const { session } = useAuth();
+
+  const floor = useFloor({ enabled: signedIn === true });
+  const board = useOrderBoard({ enabled: signedIn === true });
 
   const createOrder = useCreateOrder();
   const addItems = useAddOrderItems();
@@ -59,8 +83,11 @@ export default function CaptainPage() {
   const cancelItem = useCancelOrderItem();
 
   useEffect(() => {
-    if (!signedIn) router.replace('/captain/login');
-  }, [signedIn, router]);
+    const hasToken = tokenStorage.get() !== null;
+
+    setSignedIn(hasToken);
+    if (!hasToken) router.replace('/captain/login');
+  }, [router]);
 
   // The undo window. A plain countdown rather than anything clever: when it
   // reaches zero the banner goes and the order simply stands.
@@ -150,7 +177,9 @@ export default function CaptainPage() {
     void floor.refetch();
   };
 
-  if (!signedIn) return null;
+  // Nothing until we know, and nothing when signed out - the effect above is
+  // already sending them to the sign-in page.
+  if (signedIn !== true) return null;
 
   return (
     <main className="min-h-dvh bg-ground pb-36">
@@ -179,16 +208,21 @@ export default function CaptainPage() {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              tokenStorage.clear();
-              router.replace('/captain/login');
-            }}
-            className="text-xs font-medium text-muted hover:text-ink"
-          >
-            End shift
-          </button>
+          <div className="shrink-0 text-right">
+            {session?.user.name && (
+              <p className="max-w-28 truncate text-xs font-medium text-ink">{session.user.name}</p>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                tokenStorage.clear();
+                router.replace('/captain/login');
+              }}
+              className="text-xs font-medium text-muted hover:text-ink"
+            >
+              End shift
+            </button>
+          </div>
         </div>
       </header>
 

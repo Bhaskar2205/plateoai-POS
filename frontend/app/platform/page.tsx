@@ -43,6 +43,7 @@ interface PlatformRestaurant {
   status: 'ACTIVE' | 'INACTIVE';
   address: string | null;
   phone: string | null;
+  taxNumber: string | null;
   createdAt: string;
   owners: Array<{ id: number; name: string; email: string; role: string }>;
 }
@@ -199,6 +200,15 @@ export default function PlatformPage() {
                     <p className="mt-0.5 font-mono text-[11px] text-muted">
                       /menu/{restaurant.publicSlug}
                     </p>
+                    {/* A bill without one is not a tax invoice, so it is worth seeing
+                        at a glance which restaurants are missing it. */}
+                    {restaurant.taxNumber ? (
+                      <p className="mt-0.5 text-[11px] text-muted">
+                        GSTIN <span className="font-mono text-ink">{restaurant.taxNumber}</span>
+                      </p>
+                    ) : (
+                      <p className="mt-0.5 text-[11px] text-warn-600">No GST number on bills</p>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap gap-2">
@@ -317,6 +327,7 @@ function OpenAccountDialog({
     restaurantName: '',
     address: '',
     phone: '',
+    taxNumber: '',
     ownerName: '',
     ownerEmail: '',
     ownerPassword: '',
@@ -338,6 +349,7 @@ function OpenAccountDialog({
           restaurantName: form.restaurantName.trim(),
           address: form.address.trim() || undefined,
           phone: form.phone.trim() || undefined,
+          taxNumber: form.taxNumber.trim() || undefined,
           ownerName: form.ownerName.trim(),
           ownerEmail: form.ownerEmail.trim(),
           ownerPassword: form.ownerPassword,
@@ -390,6 +402,17 @@ function OpenAccountDialog({
         <TextField label="Restaurant name" required value={form.restaurantName} onChange={set('restaurantName')} />
         <TextField label="Address" value={form.address} onChange={set('address')} />
         <TextField label="Phone" value={form.phone} onChange={set('phone')} />
+        {/* Printed on every bill. Set here so a restaurant that is already
+            registered has it from its first bill rather than after somebody
+            remembers to fill in a profile field. */}
+        <TextField
+          label="GST number"
+          placeholder="08AAAAA0000A1Z5"
+          hint="Printed on every bill under the name and address. The owner can change it later."
+          maxLength={32}
+          value={form.taxNumber}
+          onChange={set('taxNumber')}
+        />
 
         <hr className="border-line" />
 

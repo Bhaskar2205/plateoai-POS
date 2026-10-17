@@ -34,6 +34,26 @@ export class CreateRestaurantAccountDto {
   @MaxLength(32)
   phone?: string;
 
+  /**
+   * Printed on every bill the restaurant gives a guest.
+   *
+   * Set here so a restaurant that is already registered has it from its first
+   * bill. A bill issued without it is not a tax invoice, and reissuing a week of
+   * them because nobody filled in a profile field is a bad first week.
+   *
+   * The owner can still change it later in their own profile.
+   */
+  @ApiPropertyOptional({
+    example: '08AAAAA0000A1Z5',
+    maxLength: 32,
+    description: 'Tax registration number printed on bills, e.g. a GSTIN.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(32)
+  taxNumber?: string;
+
   @ApiProperty({ example: 'Arjun Mehta', description: "The owner's name.", maxLength: 120 })
   @Transform(trim)
   @IsString()

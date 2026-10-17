@@ -228,6 +228,31 @@ describe('Platform admin (e2e)', () => {
         .expect(400);
     });
 
+    it('records the GST number, so the first bill is a valid tax invoice', async () => {
+      // A restaurant that is already registered should not have to wait for
+      // somebody to notice a profile field before it can issue a proper invoice.
+      const { body } = await api(app)
+        .post('/platform/restaurants')
+        .set(platform)
+        .send(account({ address: '14 Residency Road, Jaipur', taxNumber: '08AAAAA0000A1Z5' }))
+        .expect(201);
+
+      expect(body).toMatchObject({
+        address: '14 Residency Road, Jaipur',
+        taxNumber: '08AAAAA0000A1Z5',
+      });
+    });
+
+    it('leaves the GST number empty when none was given', async () => {
+      const { body } = await api(app)
+        .post('/platform/restaurants')
+        .set(platform)
+        .send(account())
+        .expect(201);
+
+      expect(body.taxNumber).toBeNull();
+    });
+
     it('counts what the platform has', async () => {
       const { body } = await api(app).get('/platform/stats').set(platform).expect(200);
 

@@ -46,6 +46,8 @@ export interface PlatformRestaurantRow {
   status: RestaurantStatus;
   address: string | null;
   phone: string | null;
+  /** Shown in the panel so Plateo can see which restaurants can bill properly. */
+  taxNumber: string | null;
   createdAt: Date;
   owners: Array<{ id: number; name: string; email: string; role: UserRole }>;
 }
@@ -96,6 +98,7 @@ export class PlatformService {
       status: restaurant.status,
       address: restaurant.address,
       phone: restaurant.phone,
+      taxNumber: restaurant.taxNumber,
       createdAt: restaurant.createdAt,
       owners: byRestaurant.get(restaurant.id) ?? [],
     }));
@@ -128,7 +131,12 @@ export class PlatformService {
       }
 
       const restaurant = await this.restaurantsService.createRestaurant(
-        { name: dto.restaurantName, address: dto.address ?? null, phone: dto.phone ?? null },
+        {
+          name: dto.restaurantName,
+          address: dto.address ?? null,
+          phone: dto.phone ?? null,
+          taxNumber: dto.taxNumber ?? null,
+        },
         manager,
       );
 
@@ -162,6 +170,7 @@ export class PlatformService {
       status: created.restaurant.status,
       address: created.restaurant.address,
       phone: created.restaurant.phone,
+      taxNumber: created.restaurant.taxNumber,
       createdAt: created.restaurant.createdAt,
       owners: [
         {
