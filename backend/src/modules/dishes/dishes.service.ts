@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Like, Repository } from 'typeorm';
+import { DataSource, In, Like, Repository } from 'typeorm';
 import { CategoriesService } from 'src/modules/categories/categories.service';
 import { IngredientsService } from 'src/modules/ingredients/ingredients.service';
 import { assertIngredientsOwned, replaceRecipe } from './dish-recipe.writer';
+import { BulkTaxGroupDto, BulkTaxGroupResultDto } from './dto/bulk-tax-group.dto';
 import { CreateDishDto, UpdateDishDto } from './dto/create-dish.dto';
 import { OrderBoardDishDto } from './dto/order-board.dto';
 import { QueryDishDto } from './dto/query-dish.dto';
@@ -159,6 +160,64 @@ export class DishesService {
    * Partial update. When `ingredients` is present the recipe is replaced in the
    * same transaction as the dish fields - both change, or neither does.
    */
+  /**
+   * Puts a batch of dishes into one tax group.
+   *
+   * This is the whole of "GST on these, not on those": a tax component names the
+   * group it applies to, so moving a dish to EXEMPT takes every component off it
+   * and moving it to ALCOHOL swaps GST for whatever the restaurant charges on
+   * drink. Nothing here touches a bill that already exists - charges are copied
+   * onto an order when it is computed, so a reclassification applies to the next
+   * bill and never rewrites one a guest has paid.
+   *
+   * Audited one row per dish, with the same action a single edit writes, so
+   * "when did this stop being taxed" has one answer however it was changed.
+   */
+  async setTaxGroup(
+    restaurantId: number,
+    dto: BulkTaxGroupDto,
+    userId: number,
+    context: AuditContext,
+  ): Promise<BulkTaxGroupResultDto> {
+    // Scoped to the restaurant in the query, not filtered afterwards: an id
+    // belonging to somebody else must never be loaded in the first place.
+    const dishes = await this.dishesRepository.find({
+      where: { restaurantId, id: In(dto.dishIds) },
+    });
+
+    const changing = dishes.filter((dish) => dish.taxGroup !== dto.taxGroup);
+
+    if (changing.length > 0) {
+      await this.dataSource.transaction(async (manager) => {
+        await manager.getRepository(Dish).update(
+          { id: In(changing.map((dish) => dish.id)) },
+          { taxGroup: dto.taxGroup },
+        );
+
+        for (const dish of changing) {
+          await this.auditService.recordIn(manager, {
+            restaurantId,
+            userId: userId ?? null,
+            action: AuditAction.DISH_TAX_GROUP_CHANGED,
+            entityType: AuditEntity.DISH,
+            entityId: dish.id,
+            oldValue: { name: dish.name, taxGroup: dish.taxGroup },
+            newValue: { taxGroup: dto.taxGroup },
+            context,
+          });
+        }
+      });
+    }
+
+    return {
+      updated: changing.length,
+      unchanged: dishes.length - changing.length,
+      // Deduplicated: a selection sent with the same id twice is one dish, and
+      // reporting it as missing would be a lie.
+      notFound: new Set(dto.dishIds).size - dishes.length,
+    };
+  }
+
   async update(
     restaurantId: number,
     id: number,

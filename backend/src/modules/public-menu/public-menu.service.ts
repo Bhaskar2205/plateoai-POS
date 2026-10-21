@@ -110,7 +110,11 @@ export class PublicMenuService {
     const [categories, dishes] = await Promise.all([
       this.categoriesRepository.find({
         where: { restaurantId: restaurant.id, isActive: true },
-        order: { sortOrder: 'ASC', name: 'ASC' },
+        // Ties break on creation order, not alphabetically. A restaurant builds
+        // its menu in the order it thinks about it - starters, then mains, then
+        // puddings - and sorting by name turns that into "Desserts, Mains,
+        // Starters", which is nobody's menu.
+        order: { sortOrder: 'ASC', id: 'ASC' },
         select: { id: true, name: true },
       }),
       this.dishesRepository.find({

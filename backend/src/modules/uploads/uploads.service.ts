@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import type { AppConfig } from 'src/config/configuration';
 import { CloudflareImagesStorage } from './storage/cloudflare-images.storage';
 import { LocalDiskPhotoStorage } from './storage/local-disk.storage';
-import type { PhotoStorage, StoredPhoto } from './storage/photo-storage.interface';
+import { PAYMENT_QR, type PhotoStorage, type StoredPhoto } from './storage/photo-storage.interface';
 
 /**
  * Dish photos: accept a file from a phone, and store something safe to serve.
@@ -27,6 +27,19 @@ import type { PhotoStorage, StoredPhoto } from './storage/photo-storage.interfac
 const MAX_WIDTH = 1600;
 const MAX_HEIGHT = 1600;
 const WEBP_QUALITY = 80;
+
+/**
+ * A payment QR is stored differently from a photograph.
+ *
+ * 1000px is plenty for something printed at 30mm on a receipt and shown at a few
+ * hundred pixels in the admin, and the encoding is lossless PNG rather than
+ * WebP: a thermal printer thresholds the image to pure black and white, and the
+ * grey fringes a lossy codec leaves on high-contrast edges land exactly on the
+ * squares a scanner reads. It is also flattened onto white, because a QR with a
+ * transparent background prints as a black rectangle on some drivers and loses
+ * the quiet zone scanners need on every other.
+ */
+const QR_MAX_EDGE = 1000;
 
 /** Magic bytes for the formats we accept, checked before handing anything to sharp. */
 const SIGNATURES: Array<{ format: string; test: (bytes: Buffer) => boolean }> = [
@@ -88,12 +101,23 @@ export class UploadsService {
    * worse bug than the orphan it is preventing.
    */
   async removeDishPhoto(url: string | null | undefined): Promise<void> {
+    return this.removeStored(url);
+  }
+
+  /**
+   * Removes any image this service stored, whatever kind it was.
+   *
+   * Same contract as above and for the same reason: it runs when an owner
+   * replaces their payment QR, and refusing the replacement because the old file
+   * had already gone would leave them unable to fix a wrong code.
+   */
+  async removeStored(url: string | null | undefined): Promise<void> {
     if (!url) return;
 
     try {
       await this.storage.remove(url);
     } catch (error) {
-      this.logger.warn(`Could not remove a replaced photo: ${(error as Error).message}`);
+      this.logger.warn(`Could not remove a replaced image: ${(error as Error).message}`);
     }
   }
 
@@ -150,6 +174,59 @@ export class UploadsService {
     }
 
     return this.storage.store(restaurantId, output, width, height);
+  }
+
+  /**
+   * Stores a restaurant's payment QR and returns the URL to save on the profile.
+   *
+   * Validated the same way as a dish photo - magic bytes, then a real decode -
+   * because the threat is identical: this is a file from the internet that will
+   * later be served to other people's browsers. What it deliberately does *not*
+   * do is read the code. Plateo does not parse the QR, does not learn the UPI
+   * handle inside it and never claims a scan was a payment; it stores a picture
+   * the owner is responsible for, exactly like the one taped to their counter.
+   */
+  async storePaymentQr(restaurantId: number, file: Express.Multer.File): Promise<StoredPhoto> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No image was uploaded.');
+    }
+
+    if (file.size > this.config.maxBytes) {
+      throw new BadRequestException(
+        `That image is larger than ${Math.round(this.config.maxBytes / (1024 * 1024))} MB.`,
+      );
+    }
+
+    if (!ACCEPTED_MIME_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('The QR must be a JPEG, PNG or WebP image.');
+    }
+
+    if (!SIGNATURES.some((signature) => signature.test(file.buffer))) {
+      throw new BadRequestException('That file is not a JPEG, PNG or WebP image.');
+    }
+
+    let output: Buffer;
+    let width: number;
+    let height: number;
+
+    try {
+      const result = await sharp(file.buffer, { failOn: 'error' })
+        .rotate()
+        .resize({ width: QR_MAX_EDGE, height: QR_MAX_EDGE, fit: 'inside', withoutEnlargement: true })
+        // Onto white, not onto nothing: see QR_MAX_EDGE.
+        .flatten({ background: '#ffffff' })
+        .png({ compressionLevel: 9 })
+        .toBuffer({ resolveWithObject: true });
+
+      output = result.data;
+      width = result.info.width;
+      height = result.info.height;
+    } catch (error) {
+      this.logger.warn(`Rejected an unreadable payment QR upload: ${(error as Error).message}`);
+      throw new BadRequestException('That image could not be read. Try a different file.');
+    }
+
+    return this.storage.store(restaurantId, output, width, height, PAYMENT_QR);
   }
 
   /** Absolute path of the uploads root, resolved once from the configured value. */

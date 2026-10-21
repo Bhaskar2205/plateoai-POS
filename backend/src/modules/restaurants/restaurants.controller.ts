@@ -1,5 +1,26 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post } from '@nestjs/common';
-import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Patch,
+  Post,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import {
+  ApiBadRequestResponse,
+  ApiBody,
+  ApiConsumes,
+  ApiConflictResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
+import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { ActiveRestaurantId } from 'src/common/decorators/active-restaurant.decorator';
@@ -8,6 +29,7 @@ import type { AuditContext } from 'src/modules/audit/audit.service';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { RESTAURANT_ADMIN_ROLES, UserRole } from 'src/common/enums';
 import { KitchenCodeDto } from './dto/kitchen-code.dto';
+import { PrintSettingsDto, UpdatePrintSettingsDto } from './dto/print-settings.dto';
 import { formatKitchenCode } from './kitchen-code';
 import { RestaurantStatsDto } from './dto/restaurant-stats.dto';
 import { RestaurantUserDto } from './dto/restaurant-user.dto';
@@ -48,6 +70,91 @@ export class RestaurantsController {
     @Body() dto: UpdateRestaurantDto,
   ): Promise<Restaurant> {
     return this.restaurantsService.updateRestaurant(restaurantId, dto, actorRole);
+  }
+
+  @Get('me/print-settings')
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'What this restaurant prints on its bills',
+    description:
+      'The payment QR, its caption, and whether it is currently being printed. Everything else ' +
+      'about the KOT and the bill - roll width, dot pitch, which fields each document carries - ' +
+      'is fixed by the paper and by what a kitchen ticket and a tax invoice have to say.',
+  })
+  @ApiOkResponse({ type: PrintSettingsDto })
+  getPrintSettings(@ActiveRestaurantId() restaurantId: number): Promise<PrintSettingsDto> {
+    return this.restaurantsService.getPrintSettings(restaurantId);
+  }
+
+  @Patch('me/print-settings')
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Change the caption, or start and stop printing the QR',
+    description:
+      'Owners only. The image itself is not set here - see `POST /restaurants/me/payment-qr`, ' +
+      'which takes the file. Switching printing on without a QR uploaded is refused rather than ' +
+      'silently doing nothing.',
+  })
+  @ApiOkResponse({ type: PrintSettingsDto })
+  @ApiConflictResponse({ description: 'Printing switched on with no QR uploaded.', type: ErrorResponseDto })
+  updatePrintSettings(
+    @ActiveRestaurantId() restaurantId: number,
+    @CurrentUser('id') userId: number,
+    @Body() dto: UpdatePrintSettingsDto,
+    @RequestContext() context: AuditContext,
+  ): Promise<PrintSettingsDto> {
+    return this.restaurantsService.updatePrintSettings(restaurantId, dto, userId, context);
+  }
+
+  @Post('me/payment-qr')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 12 * 1024 * 1024, files: 1 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({
+    summary: "Upload the restaurant's payment QR",
+    description:
+      'Owners only. Takes a JPEG, PNG or WebP picture of the code the restaurant already uses, ' +
+      're-encodes it as a lossless PNG on white, stores it and puts it on the restaurant in one ' +
+      'step. Any previous code is deleted. ' +
+      'Plateo does not read the code, does not know the account behind it, and never treats a ' +
+      'scan as a payment: a bill is still settled by a person pressing Settle.',
+  })
+  @ApiOkResponse({ type: PrintSettingsDto })
+  @ApiBadRequestResponse({
+    description: 'Not an image, an unreadable image, or larger than the limit.',
+    type: ErrorResponseDto,
+  })
+  setPaymentQr(
+    @ActiveRestaurantId() restaurantId: number,
+    @CurrentUser('id') userId: number,
+    @UploadedFile() file: Express.Multer.File,
+    @RequestContext() context: AuditContext,
+  ): Promise<PrintSettingsDto> {
+    return this.restaurantsService.setPaymentQr(restaurantId, file, userId, context);
+  }
+
+  @Delete('me/payment-qr')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Remove the payment QR',
+    description: 'Owners only. Deletes the stored image and stops printing it.',
+  })
+  @ApiOkResponse({ type: PrintSettingsDto })
+  clearPaymentQr(
+    @ActiveRestaurantId() restaurantId: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<PrintSettingsDto> {
+    return this.restaurantsService.clearPaymentQr(restaurantId, userId, context);
   }
 
   @Get('me/users')

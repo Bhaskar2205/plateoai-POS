@@ -19,6 +19,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState, ErrorState } from '@/components/ui/states';
 import { useToast } from '@/components/ui/toast';
 import { PageHeader } from '@/components/page-header';
+import { TaxedItemsCard } from '@/components/taxes/taxed-items-card';
 
 /**
  * What the restaurant adds on top of its menu prices.
@@ -217,6 +218,8 @@ export default function TaxesPage() {
               ))}
             </div>
           </Card>
+
+          <TaxedItemsCard components={components} />
 
           <p className="flex items-start gap-2 rounded-xl bg-info-50 px-4 py-3 text-xs text-info-700">
             <Info className="mt-px size-4 shrink-0" aria-hidden />

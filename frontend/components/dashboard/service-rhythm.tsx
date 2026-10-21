@@ -33,7 +33,14 @@ const hourLabel = (hour: number): string => {
   return `${display}${suffix}`;
 };
 
-export function ServiceRhythm({ hourly }: { hourly: HourlySales[] }) {
+export function ServiceRhythm({
+  hourly,
+  onDark = false,
+}: {
+  hourly: HourlySales[];
+  /** Drawn on the dark takings band, where muted grey on ink is unreadable. */
+  onDark?: boolean;
+}) {
   const headingId = useId();
   const [hovered, setHovered] = useState<number | null>(null);
 
@@ -54,7 +61,7 @@ export function ServiceRhythm({ hourly }: { hourly: HourlySales[] }) {
 
   if (max <= 0) {
     return (
-      <p className="text-xs text-muted">
+      <p className={cn('text-xs', onDark ? 'text-white/60' : 'text-muted')}>
         The day&apos;s rhythm appears here once the first bill is settled.
       </p>
     );
@@ -65,11 +72,14 @@ export function ServiceRhythm({ hourly }: { hourly: HourlySales[] }) {
   return (
     <figure className="m-0">
       <figcaption className="flex items-baseline justify-between gap-3">
-        <span id={headingId} className="text-xs font-medium text-muted">
+        <span
+          id={headingId}
+          className={cn('text-xs font-medium', onDark ? 'text-white/70' : 'text-muted')}
+        >
           Through the day
         </span>
         {/* One reading at a time: the hovered hour, or the busiest when idle. */}
-        <span className="text-xs text-muted tabular-nums">
+        <span className={cn('text-xs tabular-nums', onDark ? 'text-white/70' : 'text-muted')}>
           {active
             ? `${hourLabel(active.hour)} · ${formatMoneyWhole(active.total)}`
             : `Busiest ${hourLabel(peak.hour)} · ${formatMoneyWhole(peak.total)}`}
@@ -103,10 +113,16 @@ export function ServiceRhythm({ hourly }: { hourly: HourlySales[] }) {
                 className={cn(
                   'w-full rounded-t-[4px] transition-colors',
                   row.total === 0
-                    ? 'bg-line'
-                    : hovered === row.hour
-                      ? 'bg-brand-700'
-                      : 'bg-brand-500/85 group-hover:bg-brand-700',
+                    ? onDark
+                      ? 'bg-white/20'
+                      : 'bg-line'
+                    : onDark
+                      ? hovered === row.hour
+                        ? 'bg-white'
+                        : 'bg-brand-500 group-hover:bg-white'
+                      : hovered === row.hour
+                        ? 'bg-brand-700'
+                        : 'bg-brand-500/85 group-hover:bg-brand-700',
                 )}
                 // Minimum 2px so an hour that traded never looks identical to one
                 // that did not.
@@ -117,7 +133,7 @@ export function ServiceRhythm({ hourly }: { hourly: HourlySales[] }) {
         })}
       </div>
 
-      <div className="mt-1.5 flex justify-between text-[10px] text-muted">
+      <div className={cn('mt-1.5 flex justify-between text-[10px]', onDark ? 'text-white/50' : 'text-muted')}>
         <span>{hourLabel(FIRST_HOUR)}</span>
         <span>{hourLabel(14)}</span>
         <span>{hourLabel(LAST_HOUR)}</span>

@@ -30,6 +30,7 @@ import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { MENU_WRITE_ROLES, ORDER_WRITE_ROLES } from 'src/common/enums';
 import { DishIngredientsService } from './dish-ingredients.service';
 import { DishesService } from './dishes.service';
+import { BulkTaxGroupDto, BulkTaxGroupResultDto } from './dto/bulk-tax-group.dto';
 import { CreateDishDto, UpdateDishDto } from './dto/create-dish.dto';
 import {
   DishIngredientResponseDto,
@@ -112,6 +113,27 @@ export class DishesController {
     @Param('id', ParseIntPipe) id: number,
   ): Promise<Dish> {
     return this.dishesService.findOne(restaurantId, id);
+  }
+
+  @Patch('tax-group')
+  @Roles(...MENU_WRITE_ROLES)
+  @ApiOperation({
+    summary: 'Set the tax group on many dishes at once',
+    description:
+      "Which of the restaurant's tax components apply to a dish is decided by its group, so this " +
+      'is how a manager says "GST on the food, none on these" without opening sixty dish forms. ' +
+      'EXEMPT dishes are billed with no tax at all. ' +
+      'Ids that do not belong to this restaurant are counted and ignored rather than failing the ' +
+      'call, so one stale id in a selection does not lose the rest of it.',
+  })
+  @ApiOkResponse({ type: BulkTaxGroupResultDto })
+  setTaxGroup(
+    @ActiveRestaurantId() restaurantId: number,
+    @Body() dto: BulkTaxGroupDto,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<BulkTaxGroupResultDto> {
+    return this.dishesService.setTaxGroup(restaurantId, dto, userId, context);
   }
 
   @Patch(':id')

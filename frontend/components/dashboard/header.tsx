@@ -1,13 +1,27 @@
 'use client';
 
-import { Bell, ChevronDown, ExternalLink, LogOut, Menu, Settings, Store } from 'lucide-react';
+import {
+  Bell,
+  BellOff,
+  BellRing,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  LogOut,
+  Menu,
+  Settings,
+  Store,
+} from 'lucide-react';
 import type { Route } from 'next';
 import Link from 'next/link';
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { canTakeOrders } from '@/lib/permissions';
+import { useFloor } from '@/lib/queries';
+import { useOrderAlert } from '@/lib/use-order-alert';
 import { cn } from '@/lib/cn';
 import { Badge } from '@/components/ui/card';
-import { Avatar, PlateoMark } from './brand';
+import { Avatar, PlateoLogo } from './brand';
 import { ROLE_LABELS } from './sidebar';
 
 /**
@@ -61,17 +75,33 @@ export function DashboardHeader({ onOpenNavigation }: { onOpenNavigation: () => 
 
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-surface/85 backdrop-blur supports-[backdrop-filter]:bg-surface/75">
+      {/* The same hairline the sign-in screen and the takings band carry, so
+          every surface of the product is edged the same way. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-brand-700 via-brand-500 to-saffron-500 lg:hidden"
+      />
       <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-8">
         <button type="button" onClick={onOpenNavigation} aria-label="Open navigation" className={cn(ICON_BUTTON, 'lg:hidden')}>
           <Menu className="size-5" aria-hidden />
         </button>
 
-        <Link href="/restaurant/dashboard" className="rounded-lg lg:hidden" aria-label="Plateo overview">
-          <PlateoMark className="size-8" />
+        {/* On a phone there is no rail, so the header carries the branding. */}
+        <Link href="/restaurant/dashboard" className="shrink-0 rounded-lg lg:hidden" aria-label="PlateoAI overview">
+          <PlateoLogo className="h-5" priority />
         </Link>
 
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <p className="truncate text-sm font-semibold text-ink sm:text-[15px]" title={restaurant.name}>
+          <span
+            aria-hidden
+            className="hidden size-8 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-brand-50 to-saffron-50 text-brand-700 ring-1 ring-brand-100 lg:grid"
+          >
+            <Store className="size-4" />
+          </span>
+          <p
+            className="truncate text-sm font-semibold text-ink lg:text-base lg:tracking-tight"
+            title={restaurant.name}
+          >
             {restaurant.name}
           </p>
           <span className="hidden sm:inline-flex">
@@ -99,9 +129,27 @@ export function DashboardHeader({ onOpenNavigation }: { onOpenNavigation: () => 
   );
 }
 
+/**
+ * The bell: guests ordering from their phones, waiting to be accepted.
+ *
+ * It rings when the number waiting goes up and falls silent the moment somebody
+ * with the authority accepts them - the count comes from the floor itself, so
+ * there is no separate "read" state to drift out of step with the orders.
+ */
 function NotificationsButton() {
   const { open, setOpen, rootRef, triggerRef } = usePopover();
   const panelId = useId();
+
+  // Only staff who may take orders see this; for everyone else the query is
+  // never made and the bell is simply quiet.
+  const { session } = useAuth();
+  const allowed = canTakeOrders(session?.user.role);
+  const floor = useFloor({ enabled: allowed });
+
+  const waitingTables = (floor.data ?? []).filter((table) => table.pendingApprovalCount > 0);
+  const waiting = waitingTables.reduce((sum, table) => sum + table.pendingApprovalCount, 0);
+
+  const { muted, toggleMuted } = useOrderAlert(allowed ? waiting : undefined);
 
   return (
     <div ref={rootRef} className="relative">
@@ -109,28 +157,81 @@ function NotificationsButton() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        aria-label="Notifications"
+        aria-label={
+          waiting > 0
+            ? `Notifications, ${waiting} order${waiting === 1 ? '' : 's'} waiting to be accepted`
+            : 'Notifications'
+        }
         aria-expanded={open}
         aria-controls={panelId}
-        className={ICON_BUTTON}
+        className={cn(ICON_BUTTON, 'relative')}
       >
-        <Bell className="size-5" aria-hidden />
+        <Bell className={cn('size-5', waiting > 0 && 'animate-pulse text-brand-700')} aria-hidden />
+        {waiting > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 grid min-w-4.5 place-items-center rounded-full bg-danger-500 px-1 text-[10px] font-bold text-white tabular-nums">
+            {waiting > 9 ? '9+' : waiting}
+          </span>
+        )}
       </button>
 
       {open && (
         <div id={panelId} role="dialog" aria-label="Notifications" className={cn(PANEL, 'w-80 max-w-[calc(100vw-2rem)]')}>
-          <div className="border-b border-line px-4 py-3">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
             <p className="text-sm font-semibold text-ink">Notifications</p>
+            <button
+              type="button"
+              onClick={toggleMuted}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-ink"
+            >
+              {muted ? <BellOff className="size-3.5" aria-hidden /> : <Bell className="size-3.5" aria-hidden />}
+              {muted ? 'Sound off' : 'Sound on'}
+            </button>
           </div>
-          <div className="flex flex-col items-center gap-2 px-6 py-8 text-center">
-            <span className="grid size-10 place-items-center rounded-2xl bg-ground text-muted ring-1 ring-line">
-              <Bell className="size-5" aria-hidden />
-            </span>
-            <p className="text-sm font-medium text-ink">You’re all caught up</p>
-            <p className="text-xs text-muted">
-              Order alerts will appear here once QR table ordering is live.
-            </p>
-          </div>
+
+          {waitingTables.length === 0 ? (
+            <div className="flex flex-col items-center gap-2 px-6 py-8 text-center">
+              <span className="grid size-10 place-items-center rounded-2xl bg-ground text-muted ring-1 ring-line">
+                <Bell className="size-5" aria-hidden />
+              </span>
+              <p className="text-sm font-medium text-ink">You’re all caught up</p>
+              <p className="text-xs text-muted">
+                When a guest orders from a QR code it appears here until you accept it.
+              </p>
+            </div>
+          ) : (
+            <ul className="max-h-80 divide-y divide-line overflow-y-auto">
+              {waitingTables.map((table) => (
+                <li key={table.tableId}>
+                  <Link
+                    href={
+                      (table.orderId
+                        ? `/restaurant/orders/${table.orderId}`
+                        : '/restaurant/tables') as Route
+                    }
+                    onClick={() => setOpen(false)}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-ground"
+                  >
+                    <span
+                      aria-hidden
+                      className="grid size-9 shrink-0 place-items-center rounded-xl bg-warn-50 text-warn-600"
+                    >
+                      <BellRing className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink">
+                        {table.tableName}
+                      </span>
+                      <span className="block text-xs text-muted">
+                        {table.pendingApprovalCount} item
+                        {table.pendingApprovalCount === 1 ? '' : 's'} waiting to be accepted
+                      </span>
+                    </span>
+                    <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </div>

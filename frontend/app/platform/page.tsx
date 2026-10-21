@@ -3,6 +3,7 @@
 import {
   Building2,
   Check,
+  Download,
   KeyRound,
   LogOut,
   Pause,
@@ -10,6 +11,8 @@ import {
   Plus,
   ShieldCheck,
   Store,
+  Trash2,
+  TriangleAlert,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -63,6 +66,7 @@ export default function PlatformPage() {
   const [error, setError] = useState<unknown>(null);
   const [opening, setOpening] = useState(false);
   const [resetting, setResetting] = useState<PlatformRestaurant | null>(null);
+  const [deleting, setDeleting] = useState<PlatformRestaurant | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = async () => {
@@ -233,6 +237,13 @@ export default function PlatformPage() {
                         </>
                       )}
                     </Button>
+                    {/* Last, and quiet. It is the only action here that cannot be
+                        undone, so it should not sit under a thumb heading for
+                        Suspend. */}
+                    <Button size="sm" variant="ghost" onClick={() => setDeleting(restaurant)}>
+                      <Trash2 className="size-4 text-danger-600" aria-hidden />
+                      Delete
+                    </Button>
                   </div>
                 </li>
               ))}
@@ -240,6 +251,18 @@ export default function PlatformPage() {
           )}
         </Card>
       </div>
+
+      {deleting && (
+        <DeleteRestaurantDialog
+          restaurant={deleting}
+          onClose={() => setDeleting(null)}
+          onDone={(message) => {
+            setDeleting(null);
+            setNotice(message);
+            void load();
+          }}
+        />
+      )}
 
       {opening && (
         <OpenAccountDialog
@@ -519,6 +542,182 @@ function ResetPasswordDialog({
           onChange={(event) => setNewPassword(event.target.value)}
         />
       </form>
+    </Modal>
+  );
+}
+
+interface DeletionImpact {
+  name: string;
+  bills: number;
+  staff: number;
+  /** People who also work at another Plateo restaurant and lose that job too. */
+  alsoWorkElsewhere: string[];
+}
+
+/**
+ * Closing an account for good.
+ *
+ * Three things stand between a mis-click and a destroyed restaurant: the panel
+ * says what will be destroyed, it offers the data back as a file first, and the
+ * name has to be typed. None of that is friction for its own sake - this is the
+ * only action in Plateo with nothing behind it to undo with.
+ */
+function DeleteRestaurantDialog({
+  restaurant,
+  onClose,
+  onDone,
+}: {
+  restaurant: PlatformRestaurant;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const [impact, setImpact] = useState<DeletionImpact | null>(null);
+  const [typed, setTyped] = useState('');
+  const [exported, setExported] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+
+    platformFetch<DeletionImpact>(`/platform/restaurants/${restaurant.id}/deletion-impact`)
+      .then((result) => live && setImpact(result))
+      .catch(() => live && setImpact(null));
+
+    return () => {
+      live = false;
+    };
+  }, [restaurant.id]);
+
+  /** Hands the restaurant its own records back before they stop existing. */
+  const download = async () => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      const data = await platformFetch<Record<string, unknown>>(
+        `/platform/restaurants/${restaurant.id}/export`,
+      );
+
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+
+      link.href = url;
+      link.download = `plateo-${restaurant.slug}-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setExported(true);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not export. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      const result = await platformFetch<{ name: string; staffDeleted: number }>(
+        `/platform/restaurants/${restaurant.id}/delete`,
+        { method: 'POST', body: { confirmName: typed.trim() } },
+      );
+
+      onDone(
+        `${result.name} and ${result.staffDeleted} account${
+          result.staffDeleted === 1 ? '' : 's'
+        } were deleted.`,
+      );
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Could not delete. Try again.');
+      setBusy(false);
+    }
+  };
+
+  const matches = typed.trim() === restaurant.name;
+
+  return (
+    <Modal
+      open
+      title={`Delete ${restaurant.name}?`}
+      description="This cannot be undone. Everything below is destroyed permanently."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            Keep it
+          </Button>
+          <Button variant="danger" loading={busy} disabled={!matches} onClick={() => void remove()}>
+            Delete permanently
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {error && (
+          <p role="alert" className="rounded-lg bg-danger-50 px-3 py-2 text-sm text-danger-600">
+            {error}
+          </p>
+        )}
+
+        <div className="rounded-lg border border-danger-500/30 bg-danger-50 px-3 py-2 text-sm text-danger-600">
+          <p className="flex items-center gap-1.5 font-semibold">
+            <TriangleAlert className="size-4 shrink-0" aria-hidden />
+            What goes
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+            <li>
+              {impact ? impact.bills : '…'} bill{impact?.bills === 1 ? '' : 's'}, with every line,
+              payment and kitchen ticket
+            </li>
+            <li>The menu, tables, bookings and stock</li>
+            <li>
+              {impact ? impact.staff : '…'} login{impact?.staff === 1 ? '' : 's'} — the owner and
+              every captain
+            </li>
+            <li>The activity log, which is why this cannot be recorded in it</li>
+          </ul>
+        </div>
+
+        {/* The consequence nobody should meet afterwards. */}
+        {impact && impact.alsoWorkElsewhere.length > 0 && (
+          <p className="rounded-lg border border-warn-600/30 bg-warn-50 px-3 py-2 text-xs text-warn-600">
+            <span className="font-semibold">
+              {impact.alsoWorkElsewhere.join(', ')} also work
+              {impact.alsoWorkElsewhere.length === 1 ? 's' : ''} at another Plateo restaurant
+            </span>{' '}
+            and will lose that job too, because deleting a restaurant deletes every account linked
+            to it.
+          </p>
+        )}
+
+        <div className="rounded-lg border border-line bg-ground px-3 py-2">
+          <p className="text-xs text-muted">
+            Take a copy first. Once this is done there is nothing to hand back if they ask — a
+            restaurant has to keep its bills for years after it closes.
+          </p>
+          <Button
+            size="sm"
+            variant={exported ? 'ghost' : 'secondary'}
+            className="mt-2"
+            loading={busy && !matches}
+            onClick={() => void download()}
+          >
+            <Download className="size-4" aria-hidden />
+            {exported ? 'Downloaded — download again' : 'Download their data'}
+          </Button>
+        </div>
+
+        <TextField
+          label={`Type "${restaurant.name}" to confirm`}
+          placeholder={restaurant.name}
+          autoComplete="off"
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+        />
+      </div>
     </Modal>
   );
 }

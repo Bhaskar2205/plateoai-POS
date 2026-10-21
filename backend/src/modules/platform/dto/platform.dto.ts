@@ -102,3 +102,22 @@ export class ResetOwnerPasswordDto {
   @Matches(/\d/, { message: 'Password must include a number' })
   newPassword: string;
 }
+
+/**
+ * Confirming a deletion by typing the name back.
+ *
+ * A list of restaurants with similar names is exactly where a mis-click lands on
+ * the wrong row, and this is the one action in Plateo with nothing behind it to
+ * undo with. Checked on the server as well as in the panel, because a button is
+ * not a safeguard.
+ */
+export class DeleteRestaurantDto {
+  @ApiProperty({
+    example: 'The Green Bowl',
+    description: "The restaurant's name, exactly as it is stored.",
+  })
+  @Transform(trim)
+  @IsString()
+  @Length(2, 150)
+  confirmName: string;
+}

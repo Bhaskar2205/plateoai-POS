@@ -1,6 +1,11 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import type { AppConfig } from 'src/config/configuration';
-import type { PhotoStorage, StoredPhoto } from './photo-storage.interface';
+import {
+  DISH_PHOTO,
+  type AssetKind,
+  type PhotoStorage,
+  type StoredPhoto,
+} from './photo-storage.interface';
 
 /**
  * Dish photos in Cloudflare Images.
@@ -52,15 +57,23 @@ export class CloudflareImagesStorage implements PhotoStorage {
     image: Buffer,
     width: number,
     height: number,
+    kind: AssetKind = DISH_PHOTO,
   ): Promise<StoredPhoto> {
     const form = new FormData();
 
-    // Already re-encoded to WebP by the caller: EXIF stripped, orientation
-    // applied, and the bytes are ours rather than the uploader's.
-    form.append('file', new Blob([new Uint8Array(image)], { type: 'image/webp' }), 'dish.webp');
+    // Already re-encoded by the caller: EXIF stripped, orientation applied, and
+    // the bytes are ours rather than the uploader's. The kind decides the
+    // encoding - a photograph is WebP, a payment QR is lossless PNG.
+    form.append(
+      'file',
+      new Blob([new Uint8Array(image)], { type: kind.mimeType }),
+      `${kind.folder}.${kind.extension}`,
+    );
     // Metadata is returned by Cloudflare's own listing, which is what makes an
-    // orphaned image traceable back to a restaurant months later.
-    form.append('metadata', JSON.stringify({ restaurantId: String(restaurantId) }));
+    // orphaned image traceable back to a restaurant months later. The kind is
+    // recorded too: there are no folders here, so this is the only thing that
+    // distinguishes a menu photo from a restaurant's payment code.
+    form.append('metadata', JSON.stringify({ restaurantId: String(restaurantId), kind: kind.folder }));
     // Served straight from the delivery URL; there are no private menu photos.
     form.append('requireSignedURLs', 'false');
 

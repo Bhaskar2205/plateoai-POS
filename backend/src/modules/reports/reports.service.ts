@@ -10,6 +10,7 @@ import { KotTicket } from 'src/modules/orders/entities/kot-ticket.entity';
 import { OrderCharge } from 'src/modules/orders/entities/order-charge.entity';
 import { OrderItem } from 'src/modules/orders/entities/order-item.entity';
 import { Order } from 'src/modules/orders/entities/order.entity';
+import { DayEndSeriesDto } from './dto/day-end-series.dto';
 import { DayEndReportDto, DayEndTaxLineDto } from './dto/day-end.dto';
 import { ReportRangeDto } from './dto/report-range.dto';
 import {
@@ -282,71 +283,193 @@ export class ReportsService {
 
     const orderIds = settled.map((order) => order.id);
     const charges = await this.chargesRepository.find({ where: { orderId: In(orderIds) } });
-    const grouped = new Map<string, DayEndTaxLineDto & { taxablePaise: number; paise: number }>();
 
+    return foldTaxLines(settled, charges);
+  }
+
+  /**
+   * The day-end statement repeated across a range, for a month-end or a return.
+   *
+   * Three queries for the whole range rather than three per day. Thirty-one
+   * round-trips to build a month is the kind of thing that is instant on a
+   * laptop beside the database and times out on a restaurant's connection, and
+   * this is the report somebody runs on the last evening of the month with the
+   * accountant waiting.
+   */
+  async dayEndSeries(restaurantId: number, range: ReportRangeDto): Promise<DayEndSeriesDto> {
+    const period = this.period(range);
+
+    const orders = await this.ordersRepository.find({
+      where: { restaurantId, businessDate: Between(period.from, period.to) },
+      select: {
+        id: true,
+        businessDate: true,
+        status: true,
+        subtotal: true,
+        discountAmount: true,
+        serviceChargeAmount: true,
+        taxAmount: true,
+        total: true,
+        tdsAmount: true,
+        amountPayable: true,
+        paymentMethod: true,
+        // Without this the column is never loaded, every bill reads as
+        // undefined, and every giveaway quietly counts as a sale.
+        isNonChargeable: true,
+      },
+    });
+
+    const allIds = orders.map((order) => order.id);
+    const settledIds = orders
+      .filter((order) => order.status === OrderStatus.SETTLED && !order.isNonChargeable)
+      .map((order) => order.id);
+
+    // `In([])` is not an empty set to TypeORM, so both are guarded.
+    const items =
+      allIds.length === 0
+        ? []
+        : await this.itemsRepository.find({
+            where: { orderId: In(allIds) },
+            select: { orderId: true, quantity: true, status: true, lineTotal: true },
+          });
+    const charges =
+      settledIds.length === 0
+        ? []
+        : await this.chargesRepository.find({ where: { orderId: In(settledIds) } });
+
+    const chargesByOrder = new Map<number, OrderCharge[]>();
     for (const charge of charges) {
-      // A service charge is the restaurant's own income, not tax collected on
-      // anyone's behalf. It is reported on its own line and must never be added
-      // into a figure that goes onto a return.
-      if (!TAX_KINDS.includes(charge.kind)) continue;
+      const list = chargesByOrder.get(charge.orderId) ?? [];
+      list.push(charge);
+      chargesByOrder.set(charge.orderId, list);
+    }
 
-      const key = `${charge.kind}|${charge.name}|${charge.rate}`;
-      const line = grouped.get(key) ?? {
-        name: charge.name,
-        kind: charge.kind,
-        rate: charge.rate,
-        taxableAmount: 0,
-        amount: 0,
-        bills: 0,
-        taxablePaise: 0,
-        paise: 0,
+    const soldByOrder = new Map<number, number>();
+    const valueByOrder = new Map<number, number>();
+    for (const item of items) {
+      if (item.status !== OrderItemStatus.CANCELLED) {
+        soldByOrder.set(item.orderId, (soldByOrder.get(item.orderId) ?? 0) + item.quantity);
+      }
+      valueByOrder.set(item.orderId, (valueByOrder.get(item.orderId) ?? 0) + toPaise(item.lineTotal));
+    }
+
+    const byDay = new Map<string, Order[]>();
+    for (const order of orders) {
+      const list = byDay.get(order.businessDate) ?? [];
+      list.push(order);
+      byDay.set(order.businessDate, list);
+    }
+
+    const days = [...byDay.keys()].sort().map((businessDate) => {
+      const dayOrders = byDay.get(businessDate)!;
+      const closed = dayOrders.filter((order) => order.status === OrderStatus.SETTLED);
+      const settled = closed.filter((order) => !order.isNonChargeable);
+      const nonChargeable = closed.filter((order) => order.isNonChargeable);
+      const open = dayOrders.filter((order) => order.status === OrderStatus.OPEN);
+      const voided = dayOrders.filter((order) => order.status === OrderStatus.CANCELLED);
+
+      const sum = (list: Order[], pick: (order: Order) => number) =>
+        list.reduce((total, order) => total + toPaise(pick(order)), 0);
+
+      const grossPaise = sum(settled, (order) => order.subtotal);
+      const discountPaise = sum(settled, (order) => order.discountAmount);
+      const collectedPaise = sum(settled, (order) => order.amountPayable);
+
+      const byPayment = new Map<PaymentMethod, { bills: number; paise: number }>();
+      for (const order of settled) {
+        const method = order.paymentMethod ?? PaymentMethod.OTHER;
+        const entry = byPayment.get(method) ?? { bills: 0, paise: 0 };
+        byPayment.set(method, {
+          bills: entry.bills + 1,
+          paise: entry.paise + toPaise(order.amountPayable),
+        });
+      }
+
+      const worth = (list: Order[]) =>
+        list.reduce((total, order) => total + (valueByOrder.get(order.id) ?? 0), 0);
+
+      return {
+        businessDate,
+        isClosed: open.length === 0,
+        openBills: open.length,
+        bills: settled.length,
+        itemsSold: settled.reduce((total, order) => total + (soldByOrder.get(order.id) ?? 0), 0),
+        gross: fromPaise(grossPaise),
+        discounts: fromPaise(discountPaise),
+        netSales: fromPaise(grossPaise - discountPaise),
+        serviceCharge: fromPaise(sum(settled, (order) => order.serviceChargeAmount)),
+        taxTotal: fromPaise(sum(settled, (order) => order.taxAmount)),
+        total: fromPaise(sum(settled, (order) => order.total)),
+        tdsWithheld: fromPaise(sum(settled, (order) => order.tdsAmount)),
+        collected: fromPaise(collectedPaise),
+        voidedBills: voided.length,
+        // A voided bill stores zeroed totals, so its worth is read from its lines.
+        voidedValue: fromPaise(worth(voided)),
+        ncBills: nonChargeable.length,
+        ncValue: fromPaise(worth(nonChargeable)),
+        taxes: foldTaxLines(
+          settled,
+          settled.flatMap((order) => chargesByOrder.get(order.id) ?? []),
+        ),
+        payments: [...byPayment.entries()]
+          .map(([method, value]) => ({ method, bills: value.bills, total: fromPaise(value.paise) }))
+          .sort((a, b) => b.total - a.total),
       };
+    });
 
-      line.taxablePaise += toPaise(charge.taxableAmount);
-      line.paise += toPaise(charge.amount);
-      line.bills += 1;
-      grouped.set(key, line);
-    }
+    const add = (pick: (day: (typeof days)[number]) => number) =>
+      days.reduce((total, day) => total + toPaise(pick(day)), 0);
 
-    // A bill settled before the breakdown existed carries a tax amount and no
-    // components. Without this it would be missing from these lines while still
-    // counting towards the day's tax total, and the statement would not add up on
-    // the one day that matters most - the day the restaurant upgraded.
-    const withBreakdown = new Set(charges.map((charge) => charge.orderId));
-    let legacyTaxablePaise = 0;
-    let legacyPaise = 0;
-    let legacyBills = 0;
+    const bills = days.reduce((total, day) => total + day.bills, 0);
+    const collectedPaise = add((day) => day.collected);
 
-    for (const order of settled) {
-      if (withBreakdown.has(order.id) || toPaise(order.taxAmount) === 0) continue;
+    const allSettled = orders.filter(
+      (order) => order.status === OrderStatus.SETTLED && !order.isNonChargeable,
+    );
 
-      legacyTaxablePaise += toPaise(order.subtotal) - toPaise(order.discountAmount);
-      legacyPaise += toPaise(order.taxAmount);
-      legacyBills += 1;
-    }
-
-    const lines = [...grouped.values()].map((line) => ({
-      name: line.name,
-      kind: line.kind,
-      rate: line.rate,
-      taxableAmount: fromPaise(line.taxablePaise),
-      amount: fromPaise(line.paise),
-      bills: line.bills,
-    }));
-
-    if (legacyBills > 0) {
-      lines.push({
-        name: 'Tax (no breakdown recorded)',
-        kind: TaxKind.OTHER,
-        rate: 0,
-        taxableAmount: fromPaise(legacyTaxablePaise),
-        amount: fromPaise(legacyPaise),
-        bills: legacyBills,
+    const rangePayments = new Map<PaymentMethod, { bills: number; paise: number }>();
+    for (const order of allSettled) {
+      const method = order.paymentMethod ?? PaymentMethod.OTHER;
+      const entry = rangePayments.get(method) ?? { bills: 0, paise: 0 };
+      rangePayments.set(method, {
+        bills: entry.bills + 1,
+        paise: entry.paise + toPaise(order.amountPayable),
       });
     }
 
-    return lines.sort((a, b) => b.amount - a.amount);
+    return {
+      from: period.from,
+      to: period.to,
+      days,
+      totals: {
+        tradingDays: days.length,
+        bills,
+        itemsSold: days.reduce((total, day) => total + day.itemsSold, 0),
+        gross: fromPaise(add((day) => day.gross)),
+        discounts: fromPaise(add((day) => day.discounts)),
+        netSales: fromPaise(add((day) => day.netSales)),
+        serviceCharge: fromPaise(add((day) => day.serviceCharge)),
+        taxTotal: fromPaise(add((day) => day.taxTotal)),
+        total: fromPaise(add((day) => day.total)),
+        tdsWithheld: fromPaise(add((day) => day.tdsWithheld)),
+        collected: fromPaise(collectedPaise),
+        voidedBills: days.reduce((total, day) => total + day.voidedBills, 0),
+        voidedValue: fromPaise(add((day) => day.voidedValue)),
+        ncBills: days.reduce((total, day) => total + day.ncBills, 0),
+        ncValue: fromPaise(add((day) => day.ncValue)),
+        averageBill: bills === 0 ? 0 : fromPaise(Math.round(collectedPaise / bills)),
+        daysNotClosed: days.filter((day) => !day.isClosed).length,
+      },
+      // Folded over the whole range rather than summed from the per-day lines:
+      // a rate that changed mid-month has to stay two lines, not become an
+      // average nobody can file.
+      taxes: foldTaxLines(allSettled, charges),
+      payments: [...rangePayments.entries()]
+        .map(([method, value]) => ({ method, bills: value.bills, total: fromPaise(value.paise) }))
+        .sort((a, b) => b.total - a.total),
+    };
   }
+
 
   /** What sold, dish by dish. */
   async itemSales(restaurantId: number, range: ReportRangeDto): Promise<ItemSalesDto[]> {
@@ -783,4 +906,82 @@ export class ReportsService {
 
     return days;
   }
+}
+
+/**
+ * Settled bills and their charges, folded into one line per tax component.
+ *
+ * Shared by the one-day statement and the range statement, and it has to be:
+ * a month total that disagrees with the sum of its days is the bug that gets
+ * noticed by an accountant rather than by us. Grouped by kind, name *and* rate,
+ * so a restaurant that changed its rate mid-month gets two lines instead of an
+ * average nobody can file from.
+ */
+function foldTaxLines(settled: Order[], charges: OrderCharge[]): DayEndTaxLineDto[] {
+  if (settled.length === 0) return [];
+
+  const grouped = new Map<string, DayEndTaxLineDto & { taxablePaise: number; paise: number }>();
+
+  for (const charge of charges) {
+    // A service charge is the restaurant's own income, not tax collected on
+    // anyone's behalf. It is reported on its own line and must never be added
+    // into a figure that goes onto a return.
+    if (!TAX_KINDS.includes(charge.kind)) continue;
+
+    const key = `${charge.kind}|${charge.name}|${charge.rate}`;
+    const line = grouped.get(key) ?? {
+      name: charge.name,
+      kind: charge.kind,
+      rate: charge.rate,
+      taxableAmount: 0,
+      amount: 0,
+      bills: 0,
+      taxablePaise: 0,
+      paise: 0,
+    };
+
+    line.taxablePaise += toPaise(charge.taxableAmount);
+    line.paise += toPaise(charge.amount);
+    line.bills += 1;
+    grouped.set(key, line);
+  }
+
+  // A bill settled before the breakdown existed carries a tax amount and no
+  // components. Without this it would be missing from these lines while still
+  // counting towards the day's tax total, and the statement would not add up on
+  // the one day that matters most - the day the restaurant upgraded.
+  const withBreakdown = new Set(charges.map((charge) => charge.orderId));
+  let legacyTaxablePaise = 0;
+  let legacyPaise = 0;
+  let legacyBills = 0;
+
+  for (const order of settled) {
+    if (withBreakdown.has(order.id) || toPaise(order.taxAmount) === 0) continue;
+
+    legacyTaxablePaise += toPaise(order.subtotal) - toPaise(order.discountAmount);
+    legacyPaise += toPaise(order.taxAmount);
+    legacyBills += 1;
+  }
+
+  const lines = [...grouped.values()].map((line) => ({
+    name: line.name,
+    kind: line.kind,
+    rate: line.rate,
+    taxableAmount: fromPaise(line.taxablePaise),
+    amount: fromPaise(line.paise),
+    bills: line.bills,
+  }));
+
+  if (legacyBills > 0) {
+    lines.push({
+      name: 'Tax (no breakdown recorded)',
+      kind: TaxKind.OTHER,
+      rate: 0,
+      taxableAmount: fromPaise(legacyTaxablePaise),
+      amount: fromPaise(legacyPaise),
+      bills: legacyBills,
+    });
+  }
+
+  return lines.sort((a, b) => b.amount - a.amount);
 }

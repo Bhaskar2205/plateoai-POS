@@ -1,16 +1,18 @@
 'use client';
 
 import {
+  Armchair,
   ArrowLeft,
   ArrowRight,
-  Boxes,
-  Armchair,
   BadgePercent,
+  Boxes,
   CalendarCheck,
+  CalendarRange,
   ChartNoAxesColumn,
   LayoutList,
   Lock,
   Receipt,
+  Trash2,
   TrendingUp,
   Users,
   type LucideIcon,
@@ -18,7 +20,7 @@ import {
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { cn } from '@/lib/cn';
-import { canBill } from '@/lib/permissions';
+import { canBill, canManageTables } from '@/lib/permissions';
 import { useSalesReport, type ReportRange } from '@/lib/queries';
 import {
   AdjustmentsReportView,
@@ -30,6 +32,8 @@ import {
   TablesReport,
 } from '@/components/reports/report-views';
 import { DayEndReport } from '@/components/reports/day-end-report';
+import { DeleteDataCard } from '@/components/reports/delete-data-card';
+import { MonthStatement } from '@/components/reports/month-statement';
 import { Kpi, money, RANGE_PRESETS, RangePicker } from '@/components/reports/report-shell';
 import { Card, CardBody } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/states';
@@ -48,7 +52,17 @@ import { PageHeader } from '@/components/page-header';
  * range you picked stays picked as you move between reports.
  */
 
-type ReportId = 'day-end' | 'sales' | 'items' | 'sections' | 'orders' | 'staff' | 'tables' | 'adjustments';
+type ReportId =
+  | 'day-end'
+  | 'month'
+  | 'sales'
+  | 'items'
+  | 'sections'
+  | 'orders'
+  | 'staff'
+  | 'tables'
+  | 'adjustments'
+  | 'delete';
 
 const REPORTS: Array<{
   id: ReportId;
@@ -56,12 +70,22 @@ const REPORTS: Array<{
   description: string;
   icon: LucideIcon;
   tint: string;
+  /** Destroying records is the owner's decision, not a manager's. */
+  ownerOnly?: boolean;
 }> = [
   {
     id: 'day-end',
     title: 'Day-end statement',
     description: 'Closing the till: the day’s takings with tax broken down the way it is filed.',
     icon: CalendarCheck,
+    tint: 'bg-brand-50 text-brand-700',
+  },
+  {
+    id: 'month',
+    title: 'Month statement',
+    description:
+      'Every trading day in the period, and the component totals a GST return is filled in from.',
+    icon: CalendarRange,
     tint: 'bg-brand-50 text-brand-700',
   },
   {
@@ -113,6 +137,14 @@ const REPORTS: Array<{
     icon: BadgePercent,
     tint: 'bg-warn-50 text-warn-600',
   },
+  {
+    id: 'delete',
+    title: 'Delete data permanently',
+    description: 'Erase the bills in the selected period. Owners only, and it cannot be undone.',
+    icon: Trash2,
+    tint: 'bg-danger-50 text-danger-600',
+    ownerOnly: true,
+  },
 ];
 
 export default function ReportsPage() {
@@ -138,7 +170,9 @@ export default function ReportsPage() {
     );
   }
 
-  const current = REPORTS.find((report) => report.id === open);
+  const owner = canManageTables(session.user.role);
+  const visible = REPORTS.filter((report) => !report.ownerOnly || owner);
+  const current = visible.find((report) => report.id === open);
 
   return (
     <>
@@ -175,7 +209,7 @@ export default function ReportsPage() {
       </div>
 
       {current ? (
-        <ReportBody id={current.id} range={range} />
+        <ReportBody id={current.id} range={range} restaurantName={session.restaurant.name} />
       ) : (
         <div className="space-y-5">
           <HeadlineNumbers range={range} />
@@ -183,7 +217,7 @@ export default function ReportsPage() {
           <div>
             <h2 className="mb-3 text-sm font-semibold tracking-tight text-ink">All reports</h2>
             <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {REPORTS.map((report) => {
+              {visible.map((report) => {
                 const Icon = report.icon;
 
                 return (
@@ -286,10 +320,22 @@ function HeadlineNumbers({ range }: { range: ReportRange }) {
   );
 }
 
-function ReportBody({ id, range }: { id: ReportId; range: ReportRange }) {
+function ReportBody({
+  id,
+  range,
+  restaurantName,
+}: {
+  id: ReportId;
+  range: ReportRange;
+  restaurantName: string;
+}) {
   switch (id) {
     case 'day-end':
       return <DayEndReport range={range} />;
+    case 'month':
+      return <MonthStatement range={range} restaurantName={restaurantName} />;
+    case 'delete':
+      return <DeleteDataCard range={range} restaurantName={restaurantName} />;
     case 'sales':
       return <SalesReport range={range} />;
     case 'items':

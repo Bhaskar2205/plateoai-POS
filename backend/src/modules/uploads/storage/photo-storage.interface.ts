@@ -10,6 +10,38 @@
  * ~350px and the details sheet shows one at full size; serving the same 115 KB
  * file to both is what makes a long menu expensive to scroll.
  */
+/**
+ * What kind of image is being stored.
+ *
+ * Two things differ between an image of a dish and an image of a payment QR, and
+ * both have to reach the store: where it is filed, and what it is encoded as. A
+ * dish photo is WebP because it is a photograph served to phones over and over;
+ * a payment QR is PNG because it is line art that a thermal printer thresholds
+ * to one bit, and a lossy codec puts grey fringes on exactly the edges the
+ * scanner is looking for.
+ *
+ * Keeping them in separate folders is not tidiness: it is what lets a
+ * restaurant's menu photos be swept without taking its payment code with them.
+ */
+export interface AssetKind {
+  /** Folder on the local volume, and the label recorded in Cloudflare metadata. */
+  readonly folder: 'dishes' | 'payment-qr';
+  readonly extension: 'webp' | 'png';
+  readonly mimeType: 'image/webp' | 'image/png';
+}
+
+export const DISH_PHOTO: AssetKind = {
+  folder: 'dishes',
+  extension: 'webp',
+  mimeType: 'image/webp',
+};
+
+export const PAYMENT_QR: AssetKind = {
+  folder: 'payment-qr',
+  extension: 'png',
+  mimeType: 'image/png',
+};
+
 export interface StoredPhoto {
   /** Full-size URL, saved on the dish. */
   url: string;
@@ -34,7 +66,13 @@ export interface PhotoStorage {
    * `restaurantId` scopes the stored object so a restaurant's photos can be found
    * and removed as a set, which matters the day somebody closes their account.
    */
-  store(restaurantId: number, image: Buffer, width: number, height: number): Promise<StoredPhoto>;
+  store(
+    restaurantId: number,
+    image: Buffer,
+    width: number,
+    height: number,
+    kind?: AssetKind,
+  ): Promise<StoredPhoto>;
 
   /**
    * Removes a photo previously stored here, given the URL saved on the dish.

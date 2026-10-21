@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { AppConfig } from 'src/config/configuration';
-import type { PhotoStorage, StoredPhoto } from './photo-storage.interface';
+import { DISH_PHOTO, PAYMENT_QR, type AssetKind, type PhotoStorage, type StoredPhoto } from './photo-storage.interface';
 
 /**
  * Photos on the API's own volume, served by Express.
@@ -31,16 +31,17 @@ export class LocalDiskPhotoStorage implements PhotoStorage {
     image: Buffer,
     width: number,
     height: number,
+    kind: AssetKind = DISH_PHOTO,
   ): Promise<StoredPhoto> {
     // Random, so it cannot collide, cannot be guessed, and cannot contain a path
     // the caller chose.
-    const name = `${randomBytes(16).toString('hex')}.webp`;
-    const directory = join(this.baseDirectory(), 'dishes', String(restaurantId));
+    const name = `${randomBytes(16).toString('hex')}.${kind.extension}`;
+    const directory = join(this.baseDirectory(), kind.folder, String(restaurantId));
 
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, name), image);
 
-    const url = `${this.config.publicApiUrl}/uploads/dishes/${restaurantId}/${name}`;
+    const url = `${this.config.publicApiUrl}/uploads/${kind.folder}/${restaurantId}/${name}`;
 
     return { url, thumbnailUrl: url, width, height, bytes: image.length };
   }
@@ -75,17 +76,28 @@ export class LocalDiskPhotoStorage implements PhotoStorage {
    * delete something else entirely.
    */
   private pathFor(url: string): string | null {
-    if (!url.startsWith(`${this.config.publicApiUrl}/uploads/dishes/`)) return null;
+    const root = `${this.config.publicApiUrl}/uploads/`;
 
-    const segments = url.slice(`${this.config.publicApiUrl}/uploads/dishes/`.length).split('/');
+    if (!url.startsWith(root)) return null;
 
-    if (segments.length !== 2) return null;
+    const segments = url.slice(root.length).split('/');
 
-    const [restaurantId, name] = segments;
+    if (segments.length !== 3) return null;
 
-    if (!/^\d+$/.test(restaurantId) || !/^[a-f0-9]{32}\.webp$/.test(name)) return null;
+    const [folder, restaurantId, name] = segments;
 
-    const path = join(this.baseDirectory(), 'dishes', restaurantId, name);
+    // Matched against the folders we actually write, never against whatever the
+    // URL happens to contain: this is the check that keeps a delete inside the
+    // uploads tree even before the resolved path is re-tested below.
+    const kind = [DISH_PHOTO, PAYMENT_QR].find((candidate) => candidate.folder === folder);
+
+    if (!kind) return null;
+    if (!/^\d+$/.test(restaurantId)) return null;
+    // `\\.` so the built pattern carries an escaped dot: in a template literal
+    // `\.` is simply `.`, which would match any character.
+    if (!new RegExp(`^[a-f0-9]{32}\\.${kind.extension}$`).test(name)) return null;
+
+    const path = join(this.baseDirectory(), kind.folder, restaurantId, name);
 
     return path.startsWith(this.baseDirectory()) ? path : null;
   }

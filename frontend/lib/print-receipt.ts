@@ -1,3 +1,9 @@
+import {
+  PX_PER_MM,
+  TAIL_MM,
+  printableWidthMm,
+  thermalPrinterConfig as config,
+} from './print-config';
 import type { Bill, KotPrint } from './types';
 
 /**
@@ -10,59 +16,63 @@ import type { Bill, KotPrint } from './types';
  * ticket written down. Everything renders in a hidden iframe, so the admin shell
  * itself never ends up on paper and no pop-up blocker is involved.
  *
- * Monospace and 72mm of usable width, because an 80mm roll prints about 72mm and
- * aligned columns are what makes a ticket readable at a glance across a kitchen.
+ * Every measurement comes from `print-config.ts`. Both documents are built to be
+ * **short**: a thermal roll is a consumable, a waiter carries the bill across a
+ * room, and a cook reads the ticket at arm's length over a pass. So nothing is
+ * printed twice, nothing is printed that the reader already knows, and no line
+ * exists to make the paper look balanced.
  */
 
-/** An 80mm roll prints about 72mm; the rest is the printer's own margin. */
-const ROLL_WIDTH_MM = 80;
-const CONTENT_WIDTH_MM = 72;
+const ROLL_WIDTH_MM = config.paperWidthMm;
 
-/** CSS pixels are 96 to the inch by definition, whatever the screen does. */
-const PX_PER_MM = 96 / 25.4;
-
-/**
- * A little paper after the last line, so a cutter does not clip the footer.
- * Thermal rolls are continuous, so this costs millimetres rather than a sheet.
- */
-const TAIL_MM = 4;
-
-const PAPER_CSS = `
+/** Shared by both documents. What differs between them is set per document. */
+const basePaperCss = (fontSizePx: number) => `
   @page { margin: 0; }
   html, body { margin: 0; background: #fff; }
   body {
-    width: ${CONTENT_WIDTH_MM}mm;
-    padding: 3mm;
+    width: ${printableWidthMm()}mm;
+    padding: 2mm;
+    box-sizing: border-box;
     font-family: "Courier New", ui-monospace, monospace;
-    font-size: 12px;
-    line-height: 1.35;
+    font-size: ${fontSizePx}px;
+    line-height: 1.25;
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  h1 { margin: 0; font-size: 15px; letter-spacing: .02em; text-align: center; }
-  .sub { text-align: center; font-size: 11px; }
-  .big { font-size: 17px; font-weight: 700; text-align: center; margin: 2mm 0 1mm; }
-  hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
+  .mid { text-align: center; }
+  .big { font-size: ${fontSizePx + 7}px; font-weight: 700; text-align: center; margin: 1mm 0; }
+  .name { font-size: ${fontSizePx + 2}px; font-weight: 700; text-align: center; }
+  hr { border: 0; border-top: 1px dashed #000; margin: 1.2mm 0; }
   table { width: 100%; border-collapse: collapse; }
-  td { vertical-align: top; padding: .6mm 0; }
-  td.qty { width: 9mm; font-weight: 700; }
-  td.amount { text-align: right; white-space: nowrap; padding-left: 2mm; }
-  .note { font-size: 11px; font-style: italic; padding-left: 9mm; }
-  .totals td { padding: .4mm 0; }
+  td { vertical-align: top; padding: .3mm 0; }
+  td.qty { width: 7mm; font-weight: 700; }
+  td.amount { text-align: right; white-space: nowrap; padding-left: 1.5mm; }
+  .note { font-style: italic; padding-left: 7mm; }
+  /* Slightly smaller, so a long dish name and its unit price still share one
+     line - and never broken mid-figure, which is what the nowrap is for. Not
+     smaller than this: a guest checking what they were charged per dish has to
+     be able to read it off thermal paper. */
+  .unit { font-style: normal; font-size: .9em; opacity: .85; white-space: nowrap; }
   .totals .label { text-align: right; }
-  .grand td { font-size: 14px; font-weight: 700; border-top: 1px solid #000; padding-top: 1mm; }
-  .foot { text-align: center; font-size: 11px; margin-top: 3mm; }
+  .grand td { font-weight: 700; border-top: 1px solid #000; padding-top: .8mm; }
+  .foot { text-align: center; margin-top: 1.5mm; }
+  .qr { text-align: center; margin-top: 1.5mm; }
+  .qr img { width: 30mm; height: 30mm; object-fit: contain; display: block; margin: 0 auto 0.5mm; }
 `;
 
 /**
  * Waits until the frame has actually laid out, so a measurement means something.
  *
- * Fonts are the reason this is not a single frame: a receipt measured before the
- * monospace face loads is measured against a fallback with different metrics,
- * and comes out a few millimetres short - which on a thermal roll clips the
- * footer. `fonts.ready` covers it where it exists, and two animation frames
- * cover the browsers where it does not.
+ * Three things can change the height after the HTML is written, and all three
+ * have shipped a clipped receipt at some point:
+ *
+ *  - **fonts**, because a receipt measured against a fallback face has different
+ *    metrics from one measured against the monospace that finally loads;
+ *  - **images**, because the payment QR occupies 30mm the moment it decodes and
+ *    nothing at all before that;
+ *  - **layout**, which two animation frames settle on browsers with no font
+ *    loading API.
  */
 async function whenLaidOut(frame: HTMLIFrameElement): Promise<void> {
   const win = frame.contentWindow;
@@ -75,6 +85,14 @@ async function whenLaidOut(frame: HTMLIFrameElement): Promise<void> {
   } catch {
     // An older browser without the font loading API still prints.
   }
+
+  // A QR that fails to load must not stop the bill printing: the figures are
+  // the part that matters, and a missing code is better than no bill.
+  await Promise.all(
+    Array.from(doc.images).map((image) =>
+      image.complete ? Promise.resolve() : image.decode().catch(() => undefined),
+    ),
+  );
 
   await new Promise<void>((resolve) =>
     win.requestAnimationFrame(() => win.requestAnimationFrame(() => resolve())),
@@ -91,6 +109,7 @@ const escapeHtml = (value: string) =>
 const money = (value: number) =>
   value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** Date and time, for a bill that may be read back weeks later. */
 const timestamp = (value: string) =>
   new Date(value).toLocaleString('en-IN', {
     day: '2-digit',
@@ -99,16 +118,20 @@ const timestamp = (value: string) =>
     minute: '2-digit',
   });
 
+/** Time alone, for a ticket the kitchen reads within the hour. */
+const clock = (value: string) =>
+  new Date(value).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+
 /**
  * Renders HTML in a hidden iframe and opens the print dialog.
  *
  * Resolves once printing has been *requested*, not once paper has moved - the
  * browser will not tell us that, so nothing in the UI should claim it did.
  */
-async function printHtml(title: string, bodyHtml: string): Promise<void> {
+async function printHtml(title: string, bodyHtml: string, fontSizePx: number): Promise<void> {
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
     title,
-  )}</title><style>${PAPER_CSS}</style></head><body>${bodyHtml}</body></html>`;
+  )}</title><style>${basePaperCss(fontSizePx)}</style></head><body>${bodyHtml}</body></html>`;
 
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
@@ -138,16 +161,15 @@ async function printHtml(title: string, bodyHtml: string): Promise<void> {
   // The page has to be told how tall it is.
   //
   // CSS has no way to say "as tall as the content" in paged media: `size` takes
-  // lengths or the keyword `auto`, never both, so the `80mm auto` this used to
-  // carry was invalid and silently dropped - which is why a six-line receipt
-  // came out on a full sheet with a hand of blank paper under it. So the content
-  // is measured once it has laid out, and the page is cut to fit.
+  // lengths or the keyword `auto`, never both, so an `80mm auto` is invalid and
+  // silently dropped - which is why a six-line receipt used to come out on a
+  // full sheet with a hand of blank paper under it. So the content is measured
+  // once it has laid out, and the page is cut to fit. This is what
+  // `height: 'dynamic'` in the config means in practice, and it is also what
+  // puts the driver's cut in the right place.
   await whenLaidOut(frame);
 
-  const heightMm = Math.max(
-    20,
-    Math.ceil((doc.body.scrollHeight / PX_PER_MM) + TAIL_MM),
-  );
+  const heightMm = Math.max(20, Math.ceil(doc.body.scrollHeight / PX_PER_MM + TAIL_MM));
 
   const page = doc.createElement('style');
   page.textContent = `@page { size: ${ROLL_WIDTH_MM}mm ${heightMm}mm; margin: 0; }`;
@@ -164,85 +186,145 @@ async function printHtml(title: string, bodyHtml: string): Promise<void> {
 /**
  * A kitchen ticket.
  *
- * No prices anywhere - the kitchen is cooking, not charging - and quantities are
- * the heaviest thing on the page, because that is what a cook reads first.
+ * Never prices - `kot.showPrices` is false and the kitchen is cooking, not
+ * charging - and the table is the heaviest thing on the paper, because that is
+ * what a cook reads first and what the ticket is eventually matched against.
+ *
+ * The restaurant's name is not printed. A kitchen knows which kitchen it is in,
+ * and on a roll that is cut by hand every line at the top pushes the first dish
+ * further from the tear.
  */
 export function printKotTicket(ticket: KotPrint): Promise<void> {
+  const { kot } = config;
+
   const lines = ticket.items
     .map(
       (item) =>
-        `<tr><td class="qty">${item.quantity} x</td><td>${escapeHtml(item.name)}</td></tr>` +
-        (item.note ? `<tr><td colspan="2" class="note">${escapeHtml(item.note)}</td></tr>` : ''),
+        `<tr><td class="qty">${item.quantity}</td><td>${escapeHtml(item.name)}</td></tr>` +
+        (kot.showSpecialInstructions && item.note
+          ? `<tr><td colspan="2" class="note">${escapeHtml(item.note)}</td></tr>`
+          : ''),
     )
     .join('');
 
+  // One line carries everything that identifies the ticket, instead of three.
+  const meta = [
+    `KOT ${ticket.ticketNumber}`,
+    `Bill ${ticket.orderNumber}`,
+    kot.showOrderTime ? clock(ticket.createdAt) : null,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
   const body = `
-    <h1>KITCHEN ORDER</h1>
-    <div class="sub">${escapeHtml(ticket.restaurantName)}</div>
-    <div class="big">${escapeHtml(ticket.tableName ?? 'Counter')}</div>
-    <div class="sub">KOT #${ticket.ticketNumber} &middot; Bill #${ticket.orderNumber}</div>
-    <div class="sub">${escapeHtml(timestamp(ticket.createdAt))}</div>
+    ${kot.showTable ? `<div class="big">${escapeHtml(ticket.tableName ?? 'COUNTER')}</div>` : ''}
+    <div class="mid">${escapeHtml(meta)}</div>
     <hr>
     <table>${lines}</table>
     <hr>
     <div class="foot">${ticket.items.length} item${ticket.items.length === 1 ? '' : 's'}</div>
   `;
 
-  return printHtml(`KOT ${ticket.ticketNumber} - ${ticket.tableName ?? 'Counter'}`, body);
+  return printHtml(
+    `KOT ${ticket.ticketNumber} - ${ticket.tableName ?? 'Counter'}`,
+    body,
+    kot.fontSizePx,
+  );
 }
 
 /** The diner's bill. Cancelled lines never reach it - the API leaves them out. */
 export function printBill(bill: Bill): Promise<void> {
+  const { finalBill } = config;
+
   const lines = bill.lines
-    .map(
-      (line) =>
-        `<tr><td class="qty">${line.quantity} x</td><td>${escapeHtml(
-          line.name,
-        )}<br><span class="note" style="padding:0">@ ${money(line.unitPrice)}</span></td>` +
-        `<td class="amount">${money(line.lineTotal)}</td></tr>`,
-    )
+    .map((line) => {
+      // The unit price earns its place only when it is not the line total.
+      // Printing "1 x Dal Makhani @ 280.00 ... 280.00" says the same number
+      // twice and costs a line on every single-quantity item, which on a table
+      // of six is most of the bill.
+      const unit =
+        finalBill.showPrices && line.quantity > 1
+          ? ` <span class="unit">@${money(line.unitPrice)}</span>`
+          : '';
+      const amount = finalBill.showPrices
+        ? `<td class="amount">${money(line.lineTotal)}</td>`
+        : '';
+
+      return `<tr><td class="qty">${line.quantity}</td><td>${escapeHtml(line.name)}${unit}</td>${amount}</tr>`;
+    })
     .join('');
 
   const row = (label: string, value: string) =>
     `<tr><td class="label" colspan="2">${escapeHtml(label)}</td><td class="amount">${value}</td></tr>`;
 
+  const header = finalBill.showRestaurantDetails
+    ? `<div class="name">${escapeHtml(bill.restaurantName)}</div>` +
+      [bill.restaurantAddress, bill.restaurantPhone]
+        .filter(Boolean)
+        .map((detail) => `<div class="mid">${escapeHtml(detail as string)}</div>`)
+        .join('') +
+      (finalBill.showGST && bill.taxNumber
+        ? `<div class="mid">GSTIN ${escapeHtml(bill.taxNumber)}</div>`
+        : '')
+    : `<div class="name">${escapeHtml(bill.restaurantName)}</div>`;
+
+  // Again one line rather than three: which bill, which table, when.
+  const meta = [
+    finalBill.showInvoiceNumber ? `Bill ${bill.orderNumber}` : null,
+    bill.tableName ?? 'Counter',
+    timestamp(bill.settledAt ?? new Date().toISOString()),
+  ]
+    .filter(Boolean)
+    .join(' | ');
+
+  const taxRows =
+    finalBill.showGST && bill.charges.length > 0
+      ? /* Each component on its own line. A tax invoice that shows one combined
+           "tax 5%" is not a valid GST invoice: CGST and SGST are filed
+           separately and the guest is entitled to see both. */
+        bill.charges
+          .map((charge) => row(`${charge.name} @ ${charge.rate}%`, money(charge.amount)))
+          .join('')
+      : finalBill.showGST && bill.taxAmount > 0
+        ? row(`Tax @ ${bill.taxRate}%`, money(bill.taxAmount))
+        : '';
+
+  const discountRow =
+    finalBill.showDiscounts && bill.discountAmount > 0
+      ? row(
+          bill.discountReason ? `Discount (${bill.discountReason})` : 'Discount',
+          `-${money(bill.discountAmount)}`,
+        )
+      : '';
+
+  /* The restaurant's own payment code, when the owner has switched it on. The
+     API decides whether it belongs on this particular bill - it leaves it out
+     once the bill is settled, so a paid receipt never asks for payment twice. */
+  const qr = bill.paymentQrUrl
+    ? `<hr><div class="qr">
+         <img src="${escapeHtml(bill.paymentQrUrl)}" alt="">
+         <div>Scan to pay</div>
+         ${bill.paymentQrLabel ? `<div>${escapeHtml(bill.paymentQrLabel)}</div>` : ''}
+       </div>`
+    : '';
+
+  const status = finalBill.showPaymentStatus
+    ? bill.status === 'SETTLED'
+      ? `Paid by ${escapeHtml(bill.paymentMethod ?? 'cash')}`
+      : 'Not settled yet'
+    : '';
+
   const body = `
-    <h1>${escapeHtml(bill.restaurantName)}</h1>
-    ${bill.restaurantAddress ? `<div class="sub">${escapeHtml(bill.restaurantAddress)}</div>` : ''}
-    ${bill.restaurantPhone ? `<div class="sub">${escapeHtml(bill.restaurantPhone)}</div>` : ''}
-    ${bill.taxNumber ? `<div class="sub">GSTIN ${escapeHtml(bill.taxNumber)}</div>` : ''}
+    ${header}
     <hr>
-    <div class="sub">Bill #${bill.orderNumber} &middot; ${escapeHtml(
-      bill.tableName ?? 'Counter',
-    )}</div>
-    <div class="sub">${escapeHtml(
-      bill.settledAt ? timestamp(bill.settledAt) : timestamp(new Date().toISOString()),
-    )}</div>
+    <div class="mid">${escapeHtml(meta)}</div>
     <hr>
     <table>${lines}</table>
     <hr>
     <table class="totals">
-      ${row('Subtotal', money(bill.subtotal))}
-      ${
-        bill.discountAmount > 0
-          ? row(
-              bill.discountReason ? `Discount (${bill.discountReason})` : 'Discount',
-              `-${money(bill.discountAmount)}`,
-            )
-          : ''
-      }
-      ${
-        /* Each component on its own line. A tax invoice that shows one combined
-           "tax 5%" is not a valid GST invoice: CGST and SGST are filed
-           separately and the guest is entitled to see both. */
-        bill.charges.length > 0
-          ? bill.charges
-              .map((charge) => row(`${escapeHtml(charge.name)} @ ${charge.rate}%`, money(charge.amount)))
-              .join('')
-          : bill.taxAmount > 0
-            ? row(`Tax @ ${bill.taxRate}%`, money(bill.taxAmount))
-            : ''
-      }
+      ${finalBill.showPrices ? row('Subtotal', money(bill.subtotal)) : ''}
+      ${discountRow}
+      ${taxRows}
       <tr class="grand"><td class="label" colspan="2">TOTAL</td><td class="amount">${money(
         bill.total,
       )}</td></tr>
@@ -253,16 +335,9 @@ export function printBill(bill: Bill): Promise<void> {
           : ''
       }
     </table>
-    <hr>
-    <div class="foot">
-      ${
-        bill.status === 'SETTLED'
-          ? `Paid by ${escapeHtml(bill.paymentMethod ?? 'cash')}`
-          : 'Not settled yet'
-      }
-      <br>Thank you. Please visit again.
-    </div>
+    ${qr}
+    <div class="foot">${status}${status ? '<br>' : ''}Thank you. Please visit again.</div>
   `;
 
-  return printHtml(`Bill ${bill.orderNumber}`, body);
+  return printHtml(`Bill ${bill.orderNumber}`, body, finalBill.fontSizePx);
 }

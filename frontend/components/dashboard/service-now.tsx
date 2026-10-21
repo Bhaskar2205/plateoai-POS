@@ -6,6 +6,7 @@ import Link from 'next/link';
 import type { Route } from 'next';
 import { cn } from '@/lib/cn';
 import type { TableOrderSummary } from '@/lib/types';
+import { SectionHeading } from '@/components/page-header';
 import { Skeleton } from '@/components/ui/skeleton';
 
 /**
@@ -33,9 +34,7 @@ export function ServiceNow({
 
   return (
     <section aria-labelledby="service-heading" className="space-y-3">
-      <h2 id="service-heading" className="text-sm font-semibold text-ink">
-        In service now
-      </h2>
+      <SectionHeading id="service-heading">In service now</SectionHeading>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Tile
@@ -100,22 +99,37 @@ function Tile({
     <Link
       href={href}
       className={cn(
-        'group rounded-2xl border bg-surface p-4 shadow-card transition-all',
+        'group relative overflow-hidden rounded-2xl border bg-surface p-4 shadow-card transition-all duration-150',
         'hover:-translate-y-0.5 hover:shadow-raised focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none',
-        tone === 'urgent' ? 'border-warn-600/30' : tone === 'ready' ? 'border-brand-500/30' : 'border-line',
+        tone === 'urgent' ? 'border-warn-600/35' : tone === 'ready' ? 'border-brand-500/35' : 'border-line',
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <span className="text-xs font-medium text-muted">{label}</span>
+      {/* A tile that wants attention says so with its surface, not with a
+          louder number: the figure stays the same size on every tile so four of
+          them can still be compared at a glance. */}
+      {tone !== 'calm' && (
         <span
           aria-hidden
           className={cn(
-            'grid size-8 shrink-0 place-items-center rounded-lg',
+            'pointer-events-none absolute inset-0',
             tone === 'urgent'
-              ? 'bg-warn-50 text-warn-600'
+              ? 'bg-[linear-gradient(135deg,var(--color-warn-50),transparent_65%)]'
+              : 'bg-[linear-gradient(135deg,var(--color-brand-50),transparent_65%)]',
+          )}
+        />
+      )}
+
+      <div className="relative flex items-start justify-between gap-3">
+        <span className="text-xs font-semibold tracking-wide text-muted">{label}</span>
+        <span
+          aria-hidden
+          className={cn(
+            'grid size-9 shrink-0 place-items-center rounded-xl ring-1 transition-colors',
+            tone === 'urgent'
+              ? 'bg-warn-50 text-warn-600 ring-warn-600/20'
               : tone === 'ready'
-                ? 'bg-brand-50 text-brand-700'
-                : 'bg-ground text-muted',
+                ? 'bg-brand-50 text-brand-700 ring-brand-100'
+                : 'bg-ground text-muted ring-line group-hover:text-brand-600',
           )}
         >
           <Icon className="size-4" />
@@ -123,18 +137,18 @@ function Tile({
       </div>
 
       {loading ? (
-        <Skeleton className="mt-2 h-8 w-12" />
+        <Skeleton className="relative mt-2 h-9 w-12" />
       ) : (
         <p
           className={cn(
-            'mt-1 text-3xl font-semibold',
-            tone === 'urgent' ? 'text-warn-600' : 'text-ink',
+            'relative mt-1.5 text-3xl font-semibold tracking-tight tabular-nums',
+            tone === 'urgent' ? 'text-warn-600' : tone === 'ready' ? 'text-brand-700' : 'text-ink',
           )}
         >
           {value}
         </p>
       )}
-      <p className="mt-0.5 text-xs text-muted">{detail}</p>
+      <p className="relative mt-0.5 text-xs text-muted">{detail}</p>
     </Link>
   );
 }

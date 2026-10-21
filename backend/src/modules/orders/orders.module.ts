@@ -4,6 +4,8 @@ import { DishIngredient } from 'src/modules/dishes/entities/dish-ingredient.enti
 import { Dish } from 'src/modules/dishes/entities/dish.entity';
 import { Restaurant } from 'src/modules/restaurants/entities/restaurant.entity';
 import { RestaurantTable } from 'src/modules/tables/entities/restaurant-table.entity';
+import { DataRetentionController } from './data-retention.controller';
+import { DataRetentionService } from './data-retention.service';
 import { DinerOrdersController } from './diner-orders.controller';
 import { DinerOrdersService } from './diner-orders.service';
 import { InventoryModule } from 'src/modules/inventory/inventory.module';
@@ -43,8 +45,8 @@ import { OrdersService } from './orders.service';
     // Settling a bill deducts what the bill used, in the same transaction.
     InventoryModule,
   ],
-  controllers: [OrdersController, KitchenController, DinerOrdersController],
-  providers: [OrdersService, KitchenService, DinerOrdersService],
+  controllers: [OrdersController, KitchenController, DinerOrdersController, DataRetentionController],
+  providers: [OrdersService, KitchenService, DinerOrdersService, DataRetentionService],
   // Payments settle bills through the same guarded path the till uses.
   exports: [OrdersService],
 })

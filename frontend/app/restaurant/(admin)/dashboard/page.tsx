@@ -26,6 +26,7 @@ import {
   useRestaurantStats,
   useSalesReport,
 } from '@/lib/queries';
+import { SectionHeading } from '@/components/page-header';
 import { today } from '@/components/reports/report-shell';
 import { HowTheyPaid } from '@/components/dashboard/how-they-paid';
 import { NeedsYou } from '@/components/dashboard/needs-you';
@@ -148,9 +149,7 @@ export default function DashboardPage() {
       <QuickActions slug={session.restaurant.slug} />
 
       <section aria-labelledby="menu-heading" className="space-y-3">
-        <h2 id="menu-heading" className="text-sm font-semibold text-ink">
-          Your menu
-        </h2>
+        <SectionHeading id="menu-heading">Your menu</SectionHeading>
 
         {stats.isError ? (
           <Card>
@@ -207,9 +206,7 @@ export default function DashboardPage() {
 function QuickActions({ slug }: { slug: string }) {
   return (
     <section aria-labelledby="actions-heading" className="space-y-3">
-      <h2 id="actions-heading" className="text-sm font-semibold text-ink">
-        Quick actions
-      </h2>
+      <SectionHeading id="actions-heading">Quick actions</SectionHeading>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <QuickAction
           primary

@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LogOut,
   Percent,
+  Printer,
   QrCode,
   UserRound,
   Receipt,
@@ -58,6 +59,9 @@ export const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
       // Who may take orders, and what they sign in with on their own phone.
       { href: '/restaurant/captains', label: 'Captain App', icon: UserRound, roles: TABLE_ADMIN_ROLES },
       { href: '/restaurant/orders', label: 'Bills', icon: Receipt, roles: ORDER_WRITE_ROLES },
+      // What comes out of the roll: the kitchen ticket, the customer bill, and
+      // the payment QR an owner prints on it.
+      { href: '/restaurant/printing', label: 'KOT & Printing', icon: Printer, roles: ORDER_WRITE_ROLES },
       // Arrives from the Plateo guest app rather than from the floor, and is
       // answered by whoever takes orders.
       { href: '/restaurant/bookings', label: 'Bookings', icon: CalendarCheck, roles: ORDER_WRITE_ROLES },
@@ -107,18 +111,32 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const active = activeNavHref(pathname);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="px-5 pt-5 pb-4">
-        <Link href="/restaurant/dashboard" onClick={onNavigate} className="rounded-lg">
+    <div className="flex h-full flex-col bg-surface">
+      {/* The masthead. A wash of brand colour behind it so the rail opens with
+          the product's name on a surface of its own, rather than with a logo
+          floating at the top of a white column. */}
+      <div className="relative shrink-0 px-5 pt-5 pb-4">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[linear-gradient(160deg,var(--color-brand-50),transparent_70%)]"
+        />
+        <div aria-hidden className="pointer-events-none absolute inset-x-5 bottom-0 h-px bg-line" />
+        <Link
+          href="/restaurant/dashboard"
+          onClick={onNavigate}
+          aria-label="PlateoAI restaurant admin, overview"
+          className="relative block rounded-lg focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+        >
           <PlateoWordmark subtitle="Restaurant admin" />
         </Link>
       </div>
 
-      <nav aria-label="Main" className="flex-1 space-y-6 overflow-y-auto px-3 py-2">
+      <nav aria-label="Main" className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
         {NAV_SECTIONS.map((section) => (
           <div key={section.title}>
-            <p className="px-3 pb-1.5 text-[11px] font-semibold tracking-[0.08em] text-muted/80 uppercase">
+            <p className="flex items-center gap-2 px-3 pb-2 text-[10px] font-semibold tracking-[0.14em] text-muted/70 uppercase">
               {section.title}
+              <span aria-hidden className="h-px flex-1 bg-line" />
             </p>
             <ul className="space-y-0.5">
               {section.items.map((item) => {
@@ -133,17 +151,21 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                       onClick={onNavigate}
                       aria-current={isActive ? 'page' : undefined}
                       className={cn(
-                        'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors',
+                        'group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-150',
+                        // Where you are is filled, not tinted: on a rail of
+                        // fifteen items a pale wash is easy to lose, and the one
+                        // thing this list has to answer at a glance is "which
+                        // page am I on".
                         isActive
-                          ? 'bg-brand-50 font-medium text-brand-700'
-                          : 'text-muted hover:bg-ground hover:text-ink',
+                          ? 'bg-gradient-to-r from-brand-600 to-brand-700 font-semibold text-white shadow-sm'
+                          : 'font-medium text-muted hover:bg-ground hover:text-ink',
                       )}
                     >
-                      {isActive && (
-                        <span aria-hidden className="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-brand-600" />
-                      )}
                       <Icon
-                        className={cn('size-[18px] shrink-0', isActive ? 'text-brand-600' : 'text-muted group-hover:text-ink')}
+                        className={cn(
+                          'size-[18px] shrink-0 transition-colors',
+                          isActive ? 'text-white' : 'text-muted group-hover:text-brand-600',
+                        )}
                         aria-hidden
                       />
                       <span className="flex-1 truncate">{item.label}</span>
@@ -157,20 +179,20 @@ export function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </nav>
 
       {session && (
-        <div className="border-t border-line p-3">
-          <div className="flex items-center gap-3 rounded-xl px-2 py-2">
+        <div className="shrink-0 border-t border-line p-3">
+          <div className="flex items-center gap-3 rounded-xl bg-ground p-2.5 ring-1 ring-line/70">
             <Avatar name={session.user.name} />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-ink">{session.user.name}</p>
-              <p className="truncate text-xs text-muted">
-                {ROLE_LABELS[session.user.role]} · {session.user.email}
+              <p className="truncate text-sm font-semibold text-ink">{session.user.name}</p>
+              <p className="truncate text-xs text-muted" title={session.user.email}>
+                {ROLE_LABELS[session.user.role]}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => void signOut()}
-            className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted transition-colors hover:bg-danger-50 hover:text-danger-600"
+            className="mt-1.5 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-muted transition-colors hover:bg-danger-50 hover:text-danger-600"
           >
             <LogOut className="size-[18px]" aria-hidden />
             Sign out

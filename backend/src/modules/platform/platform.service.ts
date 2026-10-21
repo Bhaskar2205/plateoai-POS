@@ -1,4 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { AuditAction, AuditEntity, RestaurantStatus, UserRole } from 'src/common/enums';
@@ -54,6 +60,12 @@ export interface PlatformRestaurantRow {
 
 @Injectable()
 export class PlatformService {
+  /**
+   * Deleting a restaurant destroys its own audit trail, so the only durable
+   * record of that act is here.
+   */
+  private readonly logger = new Logger(PlatformService.name);
+
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
     @InjectRepository(Restaurant) private readonly restaurants: Repository<Restaurant>,
@@ -63,6 +75,161 @@ export class PlatformService {
     private readonly usersService: UsersService,
     private readonly auditService: AuditService,
   ) {}
+
+  /**
+   * Everything Plateo holds for one restaurant, as a file they can keep.
+   *
+   * Produced before a deletion, because a deletion takes the restaurant's bills
+   * with it and a restaurant is required to keep those for years after it stops
+   * trading. Handing the data back is the difference between closing an account
+   * and destroying somebody's records.
+   *
+   * Raw queries by restaurant id rather than entity graphs: this runs once, on
+   * an account that is about to cease to exist, and loading the whole object
+   * tree of a busy restaurant through TypeORM would be slower and no clearer.
+   * Password hashes are never included - the people are named, not reissuable.
+   */
+  async exportRestaurant(id: number): Promise<Record<string, unknown>> {
+    const restaurant = await this.restaurants.findOne({ where: { id } });
+
+    if (!restaurant) throw new NotFoundException(`Restaurant ${id} was not found.`);
+
+    const q = <T = Record<string, unknown>>(sql: string): Promise<T[]> =>
+      this.dataSource.query(sql, [id]) as Promise<T[]>;
+
+    const [staff, categories, dishes, tables, orders, items, charges, bookings, ingredients, payments] =
+      await Promise.all([
+        q(`SELECT u.id, u.name, u.email, u.staff_code AS staffCode, u.role, u.is_active AS isActive
+             FROM users u JOIN restaurant_users ru ON ru.user_id = u.id WHERE ru.restaurant_id = ?`),
+        q('SELECT * FROM categories WHERE restaurant_id = ?'),
+        q('SELECT * FROM dishes WHERE restaurant_id = ?'),
+        q('SELECT * FROM restaurant_tables WHERE restaurant_id = ?'),
+        q('SELECT * FROM orders WHERE restaurant_id = ? ORDER BY id'),
+        q(`SELECT oi.* FROM order_items oi JOIN orders o ON o.id = oi.order_id
+             WHERE o.restaurant_id = ? ORDER BY oi.id`),
+        q(`SELECT oc.* FROM order_charges oc JOIN orders o ON o.id = oc.order_id
+             WHERE o.restaurant_id = ? ORDER BY oc.id`),
+        q('SELECT * FROM table_bookings WHERE restaurant_id = ? ORDER BY id'),
+        q('SELECT * FROM ingredients WHERE restaurant_id = ?'),
+        q('SELECT * FROM payment_intents WHERE restaurant_id = ? ORDER BY id'),
+      ]);
+
+    return {
+      exportedAt: new Date().toISOString(),
+      note:
+        'A complete copy of this restaurant as held by Plateo at the time of export. ' +
+        'Passwords are not included and cannot be recovered from this file.',
+      restaurant,
+      staff,
+      menu: { categories, dishes },
+      tables,
+      orders,
+      orderItems: items,
+      orderCharges: charges,
+      bookings,
+      ingredients,
+      payments,
+    };
+  }
+
+  /**
+   * What a deletion would destroy, so the panel can say so before it happens.
+   *
+   * `alsoWorkElsewhere` is the one that matters. Deleting a restaurant deletes
+   * the accounts of everybody who worked there, and somebody who also works at
+   * another Plateo restaurant loses that job too - a consequence nobody should
+   * meet for the first time afterwards.
+   */
+  async describeDeletion(id: number): Promise<{
+    name: string;
+    bills: number;
+    staff: number;
+    alsoWorkElsewhere: string[];
+  }> {
+    const restaurant = await this.restaurants.findOne({ where: { id } });
+
+    if (!restaurant) throw new NotFoundException(`Restaurant ${id} was not found.`);
+
+    const members = await this.memberships.find({ where: { restaurantId: id }, relations: { user: true } });
+    const ids = members.map((m) => m.userId);
+
+    const elsewhere = ids.length
+      ? await this.memberships.find({ where: { userId: In(ids) } })
+      : [];
+
+    const otherByUser = new Set(
+      elsewhere.filter((m) => m.restaurantId !== id).map((m) => m.userId),
+    );
+
+    const [{ bills }] = (await this.dataSource.query(
+      'SELECT COUNT(*) AS bills FROM orders WHERE restaurant_id = ?',
+      [id],
+    )) as Array<{ bills: number | string }>;
+
+    return {
+      name: restaurant.name,
+      bills: Number(bills),
+      staff: members.length,
+      alsoWorkElsewhere: members
+        .filter((m) => otherByUser.has(m.userId))
+        .map((m) => m.user?.name ?? `User ${m.userId}`),
+    };
+  }
+
+  /**
+   * Erases a restaurant and everyone who worked there.
+   *
+   * Irreversible, and genuinely total: every bill, payment, ticket, booking and
+   * stock movement goes with the row through the database's own cascades.
+   *
+   * The name has to be typed back. A list of restaurants with similar names is
+   * exactly where a mis-click lands on the wrong row, and this is the one action
+   * in Plateo with nothing behind it to undo with.
+   *
+   * The audit trail cannot record this. `audit_logs.restaurant_id` is NOT NULL
+   * and cascades, so any row written here would be deleted by the very statement
+   * it describes. The record is therefore the server log - which outlives the
+   * database row - and the export the panel takes first.
+   */
+  async deleteRestaurant(
+    id: number,
+    confirmName: string,
+    actorId: number,
+  ): Promise<{ name: string; staffDeleted: number }> {
+    const restaurant = await this.restaurants.findOne({ where: { id } });
+
+    if (!restaurant) throw new NotFoundException(`Restaurant ${id} was not found.`);
+
+    if (confirmName.trim() !== restaurant.name) {
+      throw new BadRequestException(
+        'The name does not match. Type the restaurant name exactly to confirm.',
+      );
+    }
+
+    const members = await this.memberships.find({ where: { restaurantId: id } });
+    const userIds = members.map((member) => member.userId);
+
+    // Written before anything is destroyed, and to the log rather than the audit
+    // table, because the audit table is one of the things about to be destroyed.
+    this.logger.warn(
+      `Deleting restaurant ${restaurant.id} "${restaurant.name}" (slug ${restaurant.slug}) ` +
+        `and ${userIds.length} account(s), requested by user ${actorId}.`,
+    );
+
+    await this.dataSource.transaction(async (manager) => {
+      // The restaurant first: its cascades clear the membership rows, which is
+      // what would otherwise hold the user rows in place.
+      await manager.getRepository(Restaurant).delete({ id });
+
+      if (userIds.length > 0) {
+        await manager.getRepository(User).delete({ id: In(userIds) });
+      }
+    });
+
+    this.logger.warn(`Deleted restaurant ${id} "${restaurant.name}".`);
+
+    return { name: restaurant.name, staffDeleted: userIds.length };
+  }
 
   /** Every restaurant on the platform, newest first, with its people. */
   async listRestaurants(): Promise<PlatformRestaurantRow[]> {

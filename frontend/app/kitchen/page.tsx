@@ -109,7 +109,10 @@ export default function KitchenLoginPage() {
               spellCheck={false}
               aria-label={`Kitchen code character ${index + 1}`}
               className={cn(
-                'size-14 rounded-xl border-2 bg-white/5 text-center text-2xl font-bold text-white uppercase sm:size-16 sm:text-3xl',
+                // Six boxes at 56px plus their gaps are wider than a 360px
+                // phone, which pushed the whole screen sideways. They start
+                // small enough to fit the narrowest handset and grow from there.
+                'size-11 rounded-xl border-2 bg-white/5 text-center text-xl font-bold text-white uppercase sm:size-14 sm:text-2xl md:size-16 md:text-3xl',
                 'focus:border-brand-500 focus:ring-4 focus:ring-brand-500/20 focus:outline-none',
                 error ? 'border-danger-500' : 'border-white/20',
               )}

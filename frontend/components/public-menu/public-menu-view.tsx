@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
+import { rupees } from '@/lib/rupees';
 import type { PublicDish, PublicMenu } from '@/lib/public-menu';
 import { DinerOrdering, DishOrderControl } from './diner-order';
 import {
@@ -60,11 +61,16 @@ export function PublicMenuView({
   const [openDish, setOpenDish] = useState<PublicDish | null>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
 
-  const money = useMemo(() => {
-    const whole = new Intl.NumberFormat('en-IN', { style: 'currency', currency: menu.currency, maximumFractionDigits: 0 });
-    const exact = new Intl.NumberFormat('en-IN', { style: 'currency', currency: menu.currency, minimumFractionDigits: 2 });
-    return (value: number) => (Number.isInteger(value) ? whole : exact).format(value);
-  }, [menu.currency]);
+  /**
+   * Not `Intl.NumberFormat`, which is what this used to be.
+   *
+   * Intl reads the device's own ICU data, and Node on the server can disagree
+   * with Chrome on somebody's phone about the space after a rupee sign. This
+   * page is server-rendered, so a disagreement means React finds markup it did
+   * not expect and rebuilds the tree - a hydration warning that shows up on one
+   * person's phone and on nobody's laptop.
+   */
+  const money = useMemo(() => (value: number) => rupees(value, menu.currency), [menu.currency]);
 
   const sections = useMemo<Section[]>(
     () => [
@@ -511,23 +517,28 @@ function DishCard({
             type="button"
             onClick={onOpen}
             aria-label={`See what is in ${dish.name}`}
-            className="min-w-0 text-left focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+            className="w-full min-w-0 text-left focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
           >
-            <span className="flex items-start gap-2">
-              <DietMark diet={dish.dietType} className="mt-0.5 shrink-0" />
+            {/* Name, a dotted leader, then the price - the way a printed menu
+                has always done it. It reads as a menu rather than as a list in
+                an app, and it puts the two things a diner is comparing on the
+                same line instead of stacked. */}
+            <span className="flex items-baseline gap-2">
+              <DietMark diet={dish.dietType} className="shrink-0 translate-y-px" />
               <h3
                 id={`dish-${dish.id}`}
-                className="min-w-0 text-[15px] leading-snug font-semibold text-ink text-balance sm:text-base"
+                className="min-w-0 shrink text-[15px] leading-snug font-semibold text-ink sm:text-base"
               >
                 {dish.name}
               </h3>
+              <span
+                aria-hidden
+                className="min-w-5 flex-1 translate-y-[-3px] border-b border-dotted border-line"
+              />
+              <span className="shrink-0 text-[15px] font-bold text-ink tabular-nums sm:text-base">
+                {money(dish.price)}
+              </span>
             </span>
-
-            {/* Under the name rather than over the photograph. On the old card a
-                long name and the price met in the same corner and overlapped. */}
-            <p className="mt-1 text-[15px] font-bold text-ink tabular-nums sm:text-base">
-              {money(dish.price)}
-            </p>
 
             {dish.description && (
               <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted sm:text-[13px]">
@@ -553,25 +564,23 @@ function DishCard({
           </div>
 
           <div className="mt-auto flex items-center justify-between gap-3 pt-3">
-            {/* Truncates rather than wrapping. At 390px a long label used to run
-                to a second line and shove itself into the Add button. */}
-            <button
-              type="button"
-              onClick={onOpen}
-              className="inline-flex min-w-0 items-center gap-0.5 rounded-lg text-xs font-semibold text-brand-700 hover:text-brand-600 focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
-            >
-              {dish.ingredients.length > 0 ? (
-                <>
-                  <Sparkles className="mr-1 size-3.5 shrink-0" aria-hidden />
-                  <span className="truncate">
-                    {`What's inside · ${dish.ingredients.length} ingredients`}
-                  </span>
-                </>
-              ) : (
-                'Dish details'
-              )}
-              <ChevronRight className="size-3.5 shrink-0" aria-hidden />
-            </button>
+            {/* Only when there is something worth opening for. The old card
+                carried a "Dish details" link on every row whether or not the
+                kitchen had filled anything in - the loudest thing on the card,
+                pointing at a link rather than at the food. */}
+            {dish.ingredients.length > 0 ? (
+              <button
+                type="button"
+                onClick={onOpen}
+                className="inline-flex min-w-0 items-center gap-0.5 rounded-lg text-xs font-medium text-brand-700 hover:text-brand-600 focus-visible:ring-4 focus-visible:ring-brand-500/20 focus-visible:outline-none"
+              >
+                <Sparkles className="mr-1 size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">{`What's inside · ${dish.ingredients.length}`}</span>
+                <ChevronRight className="size-3.5 shrink-0" aria-hidden />
+              </button>
+            ) : (
+              <span />
+            )}
 
             <span className="shrink-0">
               <DishOrderControl dish={dish} />

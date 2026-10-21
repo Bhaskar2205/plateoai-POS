@@ -5,6 +5,7 @@ import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { BILLING_ROLES } from 'src/common/enums';
+import { DayEndSeriesDto } from './dto/day-end-series.dto';
 import { DayEndReportDto } from './dto/day-end.dto';
 import { ReportRangeDto } from './dto/report-range.dto';
 import {
@@ -69,6 +70,23 @@ export class ReportsController {
   ): Promise<DayEndReportDto> {
     // `from` names the day; a day-end statement never spans a range.
     return this.reportsService.dayEnd(restaurantId, range.from);
+  }
+
+  @Get('day-end/series')
+  @ApiOperation({
+    summary: 'Day-end statements across a range (month statement)',
+    description:
+      'The same figures as the day-end statement, one row per business day that traded, plus the ' +
+      'component-by-component totals a monthly GST return is filled in from. Built for export: a ' +
+      'month comes back in one call rather than thirty-one. Dead days are left out, and a day with ' +
+      'a bill still open is flagged rather than quietly reported as final.',
+  })
+  @ApiOkResponse({ type: DayEndSeriesDto })
+  dayEndSeries(
+    @ActiveRestaurantId() restaurantId: number,
+    @Query() range: ReportRangeDto,
+  ): Promise<DayEndSeriesDto> {
+    return this.reportsService.dayEndSeries(restaurantId, range);
   }
 
   @Get('items')

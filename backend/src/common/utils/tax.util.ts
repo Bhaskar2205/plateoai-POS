@@ -143,6 +143,14 @@ export function computeBill(
     if (component.kind !== TaxKind.SERVICE_CHARGE) continue;
 
     const base = baseFor(component.appliesTo);
+
+    // Nothing on this bill belongs to the group, so the charge does not belong
+    // on the bill either. Same rule the component loader already applies to a
+    // switched-off charge: a guest handed a receipt for a bottle of water
+    // should not read "CGST 2.5% ... 0.00" underneath it, and a line charged on
+    // nothing adds nothing to a return.
+    if (base === 0) continue;
+
     const amount = roundHalfUp((base * component.rate) / 100);
 
     serviceByGroup.set(component.appliesTo, (serviceByGroup.get(component.appliesTo) ?? 0) + amount);
@@ -163,6 +171,11 @@ export function computeBill(
     if (!isTax(component.kind)) continue;
 
     const base = baseFor(component.appliesTo) + (serviceByGroup.get(component.appliesTo) ?? 0);
+
+    // See the service-charge loop above: a rate charged on nothing is not a
+    // line on the bill.
+    if (base === 0) continue;
+
     const amount = roundHalfUp((base * component.rate) / 100);
 
     taxPaise += amount;

@@ -105,9 +105,11 @@ function ShellSkeleton({ label }: { label: string }) {
   return (
     <div className="min-h-dvh bg-ground lg:flex" aria-busy="true" aria-label={label}>
       <div className="hidden h-dvh w-64 shrink-0 space-y-6 border-r border-line bg-surface p-5 lg:block">
-        <div className="flex items-center gap-2.5">
-          <Skeleton className="size-9 rounded-xl" />
-          <Skeleton className="h-4 w-20" />
+        {/* Shaped like the masthead it stands in for: wordmark, then the rule
+            and the "Restaurant admin" line underneath. */}
+        <div className="space-y-2">
+          <Skeleton className="h-7 w-36" />
+          <Skeleton className="h-2.5 w-28" />
         </div>
         <div className="space-y-2.5">
           {Array.from({ length: 7 }).map((_, index) => (

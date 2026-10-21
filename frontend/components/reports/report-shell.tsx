@@ -3,6 +3,7 @@
 import { CalendarDays, Download } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/cn';
+import { downloadCsv } from '@/lib/csv';
 import { formatMoney } from '@/lib/format';
 import type { ReportRange } from '@/lib/queries';
 import { Button } from '@/components/ui/button';
@@ -22,11 +23,30 @@ export function daysAgo(days: number): string {
 
 export const today = () => new Date().toISOString().slice(0, 10);
 
+/** `YYYY-MM-DD` for the first and last day of a calendar month, `offset` back. */
+export function monthRange(offset = 0): ReportRange {
+  const now = new Date();
+  const first = new Date(Date.UTC(now.getFullYear(), now.getMonth() - offset, 1));
+  // Day 0 of the next month is the last day of this one, leap years included.
+  const last = new Date(Date.UTC(now.getFullYear(), now.getMonth() - offset + 1, 0));
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+
+  // Never past today: a range running to the 31st in the middle of the month
+  // reads as if the rest of it had already been counted and came to nothing.
+  const end = iso(last) > today() ? today() : iso(last);
+
+  return { from: iso(first), to: end };
+}
+
 export const RANGE_PRESETS: Array<{ id: string; label: string; range: () => ReportRange }> = [
   { id: 'today', label: 'Today', range: () => ({ from: today(), to: today() }) },
   { id: 'yesterday', label: 'Yesterday', range: () => ({ from: daysAgo(1), to: daysAgo(1) }) },
   { id: '7', label: 'Last 7 days', range: () => ({ from: daysAgo(6), to: today() }) },
   { id: '30', label: 'Last 30 days', range: () => ({ from: daysAgo(29), to: today() }) },
+  // Calendar months, because a GST return is filed for one - "last 30 days" is
+  // never the thing an accountant asks for.
+  { id: 'month', label: 'This month', range: () => monthRange(0) },
+  { id: 'last-month', label: 'Last month', range: () => monthRange(1) },
 ];
 
 /**
@@ -150,28 +170,13 @@ export function ReportTable<Row>({
   empty?: string;
   fileName: string;
 }) {
-  const download = () => {
-    const escape = (value: string | number) => {
-      const text = String(value ?? '');
-
-      return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-    };
-
-    const csv = [
-      columns.map((column) => escape(column.header)).join(','),
-      ...rows.map((row) =>
-        columns.map((column) => escape(column.value ? column.value(row) : '')).join(','),
-      ),
-    ].join('\n');
-
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    link.download = `${fileName}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(link.href);
-  };
+  // Built from the same column definitions the table renders, so the file and
+  // the screen can never disagree. The quoting and the BOM live in lib/csv.
+  const download = () =>
+    downloadCsv(fileName, [
+      columns.map((column) => column.header),
+      ...rows.map((row) => columns.map((column) => (column.value ? column.value(row) : ''))),
+    ]);
 
   return (
     <Card>

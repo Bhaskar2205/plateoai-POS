@@ -207,7 +207,29 @@ export function toKotPrintDto(ticket: KotTicket, restaurantName: string): KotPri
   };
 }
 
+/**
+ * Whether this particular bill carries the restaurant's payment QR.
+ *
+ * Three things have to be true, and the third is the one worth stating: a
+ * settled bill is a receipt, not a request. Printing "scan to pay" across
+ * something the guest has already paid is how a restaurant gets paid twice and
+ * has to refund one of them, so the code comes off the moment the bill closes.
+ * Re-printing a bill that is still open carries it as usual.
+ */
+function qrFor(order: Order, restaurant: Restaurant): { url: string | null; label: string | null } {
+  const print =
+    restaurant.printPaymentQr &&
+    Boolean(restaurant.paymentQrUrl) &&
+    order.status !== OrderStatus.SETTLED;
+
+  return print
+    ? { url: restaurant.paymentQrUrl, label: restaurant.paymentQrLabel }
+    : { url: null, label: null };
+}
+
 export function toBillDto(order: Order, restaurant: Restaurant): BillDto {
+  const qr = qrFor(order, restaurant);
+
   return {
     orderId: order.id,
     orderNumber: order.orderNumber,
@@ -217,6 +239,8 @@ export function toBillDto(order: Order, restaurant: Restaurant): BillDto {
     restaurantPhone: restaurant.phone,
     taxNumber: restaurant.taxNumber,
     tableName: order.table?.name ?? null,
+    paymentQrUrl: qr.url,
+    paymentQrLabel: qr.label,
     // Every line that was made, comped ones included and marked as such. A guest
     // given a dish for nothing should be able to see that it was given.
     lines: sortByCreation(order.items ?? [])

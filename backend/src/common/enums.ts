@@ -167,6 +167,8 @@ export enum AuditAction {
   TABLE_REACTIVATED = 'TABLE_REACTIVATED',
   QR_REGENERATED = 'QR_REGENERATED',
   KITCHEN_CODE_REGENERATED = 'KITCHEN_CODE_REGENERATED',
+  /** The payment code printed on bills was added, replaced, cleared or switched. */
+  PAYMENT_QR_CHANGED = 'PAYMENT_QR_CHANGED',
   PAYMENT_INTENT_CREATED = 'PAYMENT_INTENT_CREATED',
   PAYMENT_AUTHORIZED = 'PAYMENT_AUTHORIZED',
   PAYMENT_CAPTURED = 'PAYMENT_CAPTURED',
@@ -191,6 +193,8 @@ export enum AuditAction {
   ORDER_NC_CLEARED = 'ORDER_NC_CLEARED',
   /** A no-charge bill erased by an owner. The bill goes; this record stays. */
   NC_ORDER_DELETED = 'NC_ORDER_DELETED',
+  /** A stretch of trading history erased by an owner. This record is what survives it. */
+  TRADING_DATA_DELETED = 'TRADING_DATA_DELETED',
   BOOKING_CONFIRMED = 'BOOKING_CONFIRMED',
   BOOKING_DECLINED = 'BOOKING_DECLINED',
   BOOKING_SEATED = 'BOOKING_SEATED',

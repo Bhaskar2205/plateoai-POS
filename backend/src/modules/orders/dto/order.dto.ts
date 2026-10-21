@@ -363,6 +363,19 @@ export class BillDto {
   @ApiProperty({ nullable: true, example: 'Table 01' })
   tableName: string | null;
 
+  @ApiProperty({
+    nullable: true,
+    example: 'https://api.plateoai.in/uploads/payment-qr/3/a1b2.png',
+    description:
+      "The restaurant's payment code, to print on this bill, or null. Null unless the owner has " +
+      'uploaded one and switched printing on - and null once the bill is settled, so a paid ' +
+      'receipt never asks for payment a second time.',
+  })
+  paymentQrUrl: string | null;
+
+  @ApiProperty({ nullable: true, example: 'greenbowl@okhdfcbank' })
+  paymentQrLabel: string | null;
+
   @ApiProperty({ type: [BillLineDto] })
   lines: BillLineDto[];
 

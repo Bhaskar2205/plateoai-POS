@@ -597,6 +597,15 @@ export interface Bill {
   restaurantPhone: string | null;
   taxNumber: string | null;
   tableName: string | null;
+  /**
+   * The restaurant's payment code, to print on this bill, or null.
+   *
+   * Null unless the owner uploaded one and switched printing on - and null once
+   * the bill is settled, so a paid receipt never asks for payment twice. The API
+   * makes that decision; the printer just renders what it is given.
+   */
+  paymentQrUrl: string | null;
+  paymentQrLabel: string | null;
   lines: BillLine[];
   subtotal: number;
   discountAmount: number;
@@ -616,6 +625,19 @@ export interface Bill {
   status: OrderStatus;
   paymentMethod: PaymentMethod | null;
   settledAt: string | null;
+}
+
+/**
+ * What this restaurant prints on its bills, beyond the figures.
+ *
+ * Only the payment QR is per-restaurant. Everything else about the two printed
+ * documents is fixed by the paper and by what a kitchen ticket and a tax invoice
+ * have to say - see `lib/print-config.ts`.
+ */
+export interface PrintSettings {
+  paymentQrUrl: string | null;
+  paymentQrLabel: string | null;
+  printPaymentQr: boolean;
 }
 
 /** What a diner gets back from the public menu after ordering. */
@@ -839,4 +861,101 @@ export interface OrderBoardDish {
   price: number;
   categoryName: string | null;
   dietType: DietType | null;
+}
+
+// --- Month statement, and erasing history ------------------------------------
+
+/** One business day in a range statement. Same figures as the day-end report. */
+export interface DayEndDay {
+  businessDate: string;
+  isClosed: boolean;
+  openBills: number;
+  bills: number;
+  itemsSold: number;
+  gross: number;
+  discounts: number;
+  netSales: number;
+  serviceCharge: number;
+  taxTotal: number;
+  total: number;
+  tdsWithheld: number;
+  collected: number;
+  voidedBills: number;
+  voidedValue: number;
+  ncBills: number;
+  ncValue: number;
+  taxes: DayEndTaxLine[];
+  payments: Array<{ method: PaymentMethod; bills: number; total: number }>;
+}
+
+export interface DayEndTotals {
+  tradingDays: number;
+  bills: number;
+  itemsSold: number;
+  gross: number;
+  discounts: number;
+  netSales: number;
+  serviceCharge: number;
+  taxTotal: number;
+  total: number;
+  tdsWithheld: number;
+  collected: number;
+  voidedBills: number;
+  voidedValue: number;
+  ncBills: number;
+  ncValue: number;
+  averageBill: number;
+  daysNotClosed: number;
+}
+
+/**
+ * The day-end statement across a range - what a month-end is filed from.
+ *
+ * `taxes` is folded over the whole range rather than summed from the days, so a
+ * rate that changed mid-month stays two lines instead of becoming an average
+ * nobody can file.
+ */
+export interface DayEndSeries {
+  from: string;
+  to: string;
+  days: DayEndDay[];
+  totals: DayEndTotals;
+  taxes: DayEndTaxLine[];
+  payments: Array<{ method: PaymentMethod; bills: number; total: number }>;
+}
+
+/** What erasing a range of trading history would destroy. */
+export interface TradingDataSummary {
+  from: string;
+  to: string;
+  settledBills: number;
+  voidedBills: number;
+  ncBills: number;
+  /** Any at all blocks the deletion: an unfinished service is not history yet. */
+  openBills: number;
+  items: number;
+  kotTickets: number;
+  charges: number;
+  collected: number;
+  firstDate: string | null;
+  lastDate: string | null;
+  canDelete: boolean;
+  blockedReason: string | null;
+}
+
+export interface TradingDataDeleted {
+  from: string;
+  to: string;
+  deletedBills: number;
+  deletedItems: number;
+  deletedKotTickets: number;
+  deletedCharges: number;
+  detachedPaymentRecords: number;
+}
+
+/** Result of putting a batch of dishes into one tax group. */
+export interface BulkTaxGroupResult {
+  updated: number;
+  unchanged: number;
+  notFound: number;
 }

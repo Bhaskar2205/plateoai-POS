@@ -12,8 +12,9 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
+import { amount } from '@/lib/rupees';
 import type { PublicDietType, PublicDish } from '@/lib/public-menu';
 import { DishOrderControl, useDinerCart } from './diner-order';
 import { IngredientChip, ingredientIcon } from './ingredient-icon';
@@ -32,7 +33,9 @@ import { IngredientChip, ingredientIcon } from './ingredient-icon';
  * glance rather than word by word.
  */
 
-const numberFormat = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 });
+// Not Intl: this is server-rendered markup, and a device whose ICU groups
+// differently would make React rebuild the tree. See lib/rupees.ts.
+const numberFormat = { format: (value: number) => amount(value) };
 
 const DIET_LABELS: Record<PublicDietType, string> = {
   VEG: 'Vegetarian',
@@ -300,6 +303,29 @@ export function DishDetailsSheet({
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * How far down the sheet has been dragged, in pixels.
+   *
+   * A bottom sheet that cannot be swiped away is the thing people report as "it
+   * will not close": they pull down, nothing happens, and the only exits left
+   * are a small X or a strip of backdrop. Every app they use closes a sheet this
+   * way, so the gesture is not a flourish - its absence reads as a broken page.
+   */
+  const [dragY, setDragY] = useState(0);
+  const dragFrom = useRef<number | null>(null);
+
+  /**
+   * The same distance again, in a ref.
+   *
+   * `touchend` has to decide close-or-spring-back from the final distance, and
+   * state is not guaranteed to have caught up by then - a flick whose moves and
+   * release land in one frame would be read as a drag of zero and the sheet
+   * would stay put. The ref is written synchronously, so the decision is always
+   * made on the real number; the state exists only to move the sheet on screen.
+   */
+  const dragDistance = useRef(0);
   // Null unless the menu was opened from a table QR code, in which case the diner
   // can order and the sheet earns a sticky action bar.
   const cart = useDinerCart();
@@ -324,6 +350,44 @@ export function DishDetailsSheet({
 
   if (!dish) return null;
 
+  /**
+   * Only begins a drag when the content is already scrolled to the top.
+   *
+   * Otherwise reading a long dish turns into dismissing it: the first upward
+   * flick would scroll, and the first downward one would throw the sheet away
+   * mid-sentence.
+   */
+  const onTouchStart = (event: React.TouchEvent) => {
+    if ((sheetRef.current?.scrollTop ?? 0) > 0) return;
+
+    dragFrom.current = event.touches[0].clientY;
+  };
+
+  const onTouchMove = (event: React.TouchEvent) => {
+    if (dragFrom.current === null) return;
+
+    // Downward only. Dragging up would lift the sheet off the bottom of the
+    // screen and show a gap under it.
+    const distance = Math.max(0, event.touches[0].clientY - dragFrom.current);
+
+    dragDistance.current = distance;
+    setDragY(distance);
+  };
+
+  const onTouchEnd = () => {
+    if (dragFrom.current === null) return;
+
+    const travelled = dragDistance.current;
+
+    dragFrom.current = null;
+    dragDistance.current = 0;
+    setDragY(0);
+
+    // Far enough to be deliberate. Shorter than that is a mis-swipe while
+    // reading, and the sheet springs back.
+    if (travelled > 110) onClose();
+  };
+
   const macros = macrosOf(dish);
   const calories = macros.find((macro) => macro.label === 'Calories');
   const hasPhoto = Boolean(dish.imageUrl);
@@ -335,20 +399,47 @@ export function DishDetailsSheet({
       onClick={onClose}
     >
       <div
+        ref={sheetRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={`dish-sheet-${dish.id}-title`}
         onClick={(event) => event.stopPropagation()}
-        className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-surface shadow-raised sm:rounded-3xl"
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{ transform: dragY ? `translateY(${dragY}px)` : undefined }}
+        className={cn(
+          'max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-surface shadow-raised sm:rounded-3xl',
+          // No transition while a finger is on it - the sheet should track the
+          // thumb exactly - and a quick spring back when it is let go.
+          dragY === 0 && 'transition-transform duration-200',
+        )}
       >
+        {/* The grab handle. Its job is to say "this pulls down" before anybody
+            has to discover it. Phones only: a mouse has the X and the backdrop. */}
+        <div aria-hidden className="sticky top-0 z-10 flex justify-center bg-transparent pt-2 pb-1 sm:hidden">
+          <span className="h-1 w-10 rounded-full bg-ink/25" />
+        </div>
+
         <div className="relative">
-          <DishImage
-            dish={dish}
-            failed={false}
-            onFailed={() => undefined}
-            priority
-            className="h-56 w-full sm:h-64"
-          />
+          {/* Only when there is one. A dish with no photo used to get the same
+              224px frame filled with a cutlery icon - a third of a phone screen
+              spent saying nothing, pushing the description and the allergens
+              below the fold. Without a photo the name simply leads. */}
+          {hasPhoto ? (
+            <DishImage
+              dish={dish}
+              failed={false}
+              onFailed={() => undefined}
+              priority
+              className="h-56 w-full sm:h-64"
+            />
+          ) : (
+            // Just enough to clear the close button and the grab handle. The
+            // title block below is in normal flow without a photo, so this is
+            // breathing room rather than a frame.
+            <div aria-hidden className="h-12 w-full bg-gradient-to-b from-brand-50 to-surface" />
+          )}
 
           {/* Darkened only where there is a photo, so the name over it stays readable. */}
           {hasPhoto && (
@@ -368,7 +459,15 @@ export function DishDetailsSheet({
             <X className="size-5" aria-hidden />
           </button>
 
-          <div className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 p-4">
+          <div
+            className={cn(
+              'flex items-end justify-between gap-3 p-4',
+              // Over a photograph the name sits on the image. With no photo
+              // there is nothing to sit on, and absolute positioning rode it
+              // up over the close button.
+              hasPhoto ? 'absolute inset-x-0 bottom-0' : 'pt-1',
+            )}
+          >
             <div className="min-w-0">
               <span className="mb-1.5 flex items-center gap-1.5">
                 <DietMark diet={dish.dietType} />

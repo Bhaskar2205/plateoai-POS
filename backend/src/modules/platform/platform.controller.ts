@@ -1,5 +1,6 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
@@ -10,12 +11,14 @@ import {
 } from '@nestjs/swagger';
 import { ApiAuth } from 'src/common/decorators/api-auth.decorator';
 import { RequestContext } from 'src/common/decorators/request-context.decorator';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { ErrorResponseDto } from 'src/common/dto/error-response.dto';
 import { UserRole } from 'src/common/enums';
 import { AuditContext } from 'src/modules/audit/audit.service';
 import {
   CreateRestaurantAccountDto,
+  DeleteRestaurantDto,
   ResetOwnerPasswordDto,
   UpdateRestaurantStatusDto,
 } from './dto/platform.dto';
@@ -95,6 +98,55 @@ export class PlatformController {
     @RequestContext() context: AuditContext,
   ) {
     return this.platformService.setStatus(id, dto, context);
+  }
+
+  @Get('restaurants/:id/export')
+  @ApiOperation({
+    summary: 'Everything Plateo holds for one restaurant',
+    description:
+      'A complete copy as JSON - profile, people, menu, bills, bookings and stock. Taken before a ' +
+      'deletion, because a deletion takes the bills with it and a restaurant has to keep those for ' +
+      'years after it stops trading. No password hashes.',
+  })
+  @ApiOkResponse()
+  exportRestaurant(@Param('id', ParseIntPipe) id: number): Promise<Record<string, unknown>> {
+    return this.platformService.exportRestaurant(id);
+  }
+
+  @Get('restaurants/:id/deletion-impact')
+  @ApiOperation({
+    summary: 'What deleting this restaurant would destroy',
+    description:
+      'So the panel can say it before it happens - how many bills, how many people, and which of ' +
+      'those people also work at another Plateo restaurant and would lose that job too.',
+  })
+  @ApiOkResponse()
+  deletionImpact(@Param('id', ParseIntPipe) id: number) {
+    return this.platformService.describeDeletion(id);
+  }
+
+  /**
+   * POST rather than DELETE because it carries a body: the restaurant's name,
+   * typed back. A DELETE with a body is legal but proxies and clients drop it
+   * often enough that the confirmation would silently stop arriving.
+   */
+  @Post('restaurants/:id/delete')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Delete a restaurant and everyone who worked there',
+    description:
+      'Irreversible and total: bills, payments, tickets, bookings, stock and the audit trail all ' +
+      'go. Every account linked to the restaurant is deleted, including anyone who also works at ' +
+      'another Plateo restaurant. Export first.',
+  })
+  @ApiOkResponse()
+  @ApiBadRequestResponse({ description: 'The name did not match.', type: ErrorResponseDto })
+  deleteRestaurant(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') actorId: number,
+    @Body() dto: DeleteRestaurantDto,
+  ): Promise<{ name: string; staffDeleted: number }> {
+    return this.platformService.deleteRestaurant(id, dto.confirmName, actorId);
   }
 
   @Post('restaurants/:id/reset-password')

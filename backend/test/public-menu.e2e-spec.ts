@@ -361,4 +361,57 @@ describe('Public menu (e2e)', () => {
     expect(operation!.responses['200']).toBeDefined();
     expect(operation!.responses['404']).toBeDefined();
   });
+
+  describe('the order courses come out in', () => {
+    it('keeps the restaurant order when two courses sort the same', async () => {
+      // A menu reads starters, then mains. Breaking the tie alphabetically gave
+      // "Mains" before "Starters", which is nobody's menu.
+      const owner = await registerOwner(app, { restaurantName: 'Course Order House' });
+      const h = auth(owner.accessToken);
+
+      // A course with nothing on it is hidden from the menu, so each needs a dish.
+      for (const name of ['Starters', 'Mains', 'Desserts']) {
+        const category = (await api(app).post('/categories').set(h).send({ name }).expect(201)).body;
+        await api(app)
+          .post('/dishes')
+          .set(h)
+          .send({ name: `${name} dish`, price: 100, categoryId: category.id })
+          .expect(201);
+      }
+
+      const slug = (await api(app).get('/restaurants/me').set(h).expect(200)).body.slug;
+      const { body } = await api(app).get(`/public/restaurants/${slug}/menu`).expect(200);
+
+      expect(body.categories.map((c: { name: string }) => c.name)).toEqual([
+        'Starters',
+        'Mains',
+        'Desserts',
+      ]);
+    });
+
+    it('still honours an explicit sort order over creation order', async () => {
+      const owner = await registerOwner(app, { restaurantName: 'Sorted House' });
+      const h = auth(owner.accessToken);
+
+      const made = [];
+      for (const name of ['Starters', 'Mains']) {
+        const category = (await api(app).post('/categories').set(h).send({ name }).expect(201)).body;
+        await api(app)
+          .post('/dishes')
+          .set(h)
+          .send({ name: `${name} dish`, price: 100, categoryId: category.id })
+          .expect(201);
+        made.push(category);
+      }
+
+      // The restaurant decides Mains leads.
+      await api(app).patch(`/categories/${made[1].id}`).set(h).send({ sortOrder: 1 }).expect(200);
+      await api(app).patch(`/categories/${made[0].id}`).set(h).send({ sortOrder: 2 }).expect(200);
+
+      const slug = (await api(app).get('/restaurants/me').set(h).expect(200)).body.slug;
+      const { body } = await api(app).get(`/public/restaurants/${slug}/menu`).expect(200);
+
+      expect(body.categories.map((c: { name: string }) => c.name)).toEqual(['Mains', 'Starters']);
+    });
+  });
 });

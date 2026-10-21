@@ -6,7 +6,7 @@ import {
   useQueryClient,
   type UseMutationOptions,
 } from '@tanstack/react-query';
-import { apiFetch } from './api';
+import { API_BASE_URL, ApiError, apiFetch, tokenStorage } from './api';
 import type {
   AdjustmentsReport,
   AuditAction,
@@ -36,7 +36,12 @@ import type {
   Order,
   OrderRow,
   PaymentIntent,
+  BulkTaxGroupResult,
+  DayEndSeries,
   PaymentMethod,
+  PrintSettings,
+  TradingDataDeleted,
+  TradingDataSummary,
   PaymentSettings,
   ReconciliationException,
   Restaurant,
@@ -64,6 +69,7 @@ import type {
 export const queryKeys = {
   restaurant: ['restaurant'] as const,
   restaurantMembers: ['restaurant', 'members'] as const,
+  printSettings: ['restaurant', 'print-settings'] as const,
   stats: ['restaurant', 'stats'] as const,
   categories: ['categories'] as const,
   dishes: ['dishes'] as const,
@@ -1395,3 +1401,163 @@ export const useResetStaffPassword = (
       apiFetch<void>(`/restaurants/me/staff/${id}/password`, { method: 'POST', body: { password } }),
     options,
   );
+
+// --- Printing ----------------------------------------------------------------
+
+/**
+ * The payment QR an owner prints on bills, and whether it is switched on.
+ *
+ * Owner-only on the API, so `enabled` exists for the screens that render for
+ * everyone: asking as a manager would only produce a 403 in the console.
+ */
+export const usePrintSettings = (enabled = true) =>
+  useQuery({
+    queryKey: queryKeys.printSettings,
+    queryFn: () => apiFetch<PrintSettings>('/restaurants/me/print-settings'),
+    enabled,
+  });
+
+export const useUpdatePrintSettings = (
+  options?: UseMutationOptions<PrintSettings, Error, Partial<Omit<PrintSettings, 'paymentQrUrl'>>>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body) =>
+      apiFetch<PrintSettings>('/restaurants/me/print-settings', { method: 'PATCH', body }),
+    ...options,
+    onSuccess: (settings, ...rest) => {
+      queryClient.setQueryData(queryKeys.printSettings, settings);
+      options?.onSuccess?.(settings, ...rest);
+    },
+  });
+};
+
+/**
+ * Uploads the payment code and puts it on the restaurant in one call.
+ *
+ * `fetch` rather than `apiFetch`, because the body is multipart: the browser has
+ * to set the boundary itself, and a JSON content type would break it.
+ */
+export const useUploadPaymentQr = (options?: UseMutationOptions<PrintSettings, Error, File>) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const body = new FormData();
+      body.append('file', file);
+
+      const token = tokenStorage.get();
+      const response = await fetch(`${API_BASE_URL}/restaurants/me/payment-qr`, {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body,
+      });
+
+      const text = await response.text();
+      const payload = text ? (JSON.parse(text) as PrintSettings & { message?: string }) : null;
+
+      if (!response.ok) {
+        throw new ApiError(response.status, payload?.message ?? 'The QR could not be uploaded.');
+      }
+
+      return payload!;
+    },
+    ...options,
+    onSuccess: (settings, ...rest) => {
+      queryClient.setQueryData(queryKeys.printSettings, settings);
+      options?.onSuccess?.(settings, ...rest);
+    },
+  });
+};
+
+export const useClearPaymentQr = (options?: UseMutationOptions<PrintSettings, Error, void>) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => apiFetch<PrintSettings>('/restaurants/me/payment-qr', { method: 'DELETE' }),
+    ...options,
+    onSuccess: (settings, ...rest) => {
+      queryClient.setQueryData(queryKeys.printSettings, settings);
+      options?.onSuccess?.(settings, ...rest);
+    },
+  });
+};
+
+// --- Month statement, tax rules, and erasing history -------------------------
+
+/**
+ * The day-end statement across a range, for a month-end or a return.
+ *
+ * One call for the whole month rather than one per day - see the endpoint's own
+ * note. Used by the month statement and by its CSV export.
+ */
+export const useDayEndSeries = (range: ReportRange, enabled = true) =>
+  useQuery({
+    queryKey: [...queryKeys.reports.dayEnd, 'series', range.from, range.to] as const,
+    queryFn: () =>
+      apiFetch<DayEndSeries>(
+        `/restaurants/me/reports/day-end/series?from=${range.from}&to=${range.to}`,
+      ),
+    enabled,
+  });
+
+/**
+ * Puts a batch of dishes into one tax group.
+ *
+ * Invalidates the dish list, because the group it shows is the thing that just
+ * changed, and the menu, because tax follows the dish onto the next bill.
+ */
+export const useSetDishTaxGroup = (
+  options?: UseMutationOptions<BulkTaxGroupResult, Error, { dishIds: number[]; taxGroup: TaxGroup }>,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body) =>
+      apiFetch<BulkTaxGroupResult>('/dishes/tax-group', { method: 'PATCH', body }),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.dishes });
+      options?.onSuccess?.(...args);
+    },
+  });
+};
+
+/** What erasing a range of trading history would destroy. Owner-only on the API. */
+export const useTradingDataSummary = (range: ReportRange, enabled = true) =>
+  useQuery({
+    queryKey: ['data', 'summary', range.from, range.to] as const,
+    queryFn: () =>
+      apiFetch<TradingDataSummary>(
+        `/restaurants/me/data/summary?from=${range.from}&to=${range.to}`,
+      ),
+    enabled,
+  });
+
+/**
+ * Erases a range of trading history. There is no undo.
+ *
+ * Every report and every figure on the dashboard is now wrong, so this clears
+ * the whole cache rather than picking query keys: naming them would mean
+ * remembering to add the next one.
+ */
+export const useDeleteTradingData = (
+  options?: UseMutationOptions<
+    TradingDataDeleted,
+    Error,
+    { from: string; to: string; confirmName: string }
+  >,
+) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (body) =>
+      apiFetch<TradingDataDeleted>('/restaurants/me/data', { method: 'DELETE', body }),
+    ...options,
+    onSuccess: (...args) => {
+      void queryClient.invalidateQueries();
+      options?.onSuccess?.(...args);
+    },
+  });
+};

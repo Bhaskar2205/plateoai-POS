@@ -101,6 +101,35 @@ export class Restaurant {
   taxNumber: string | null;
 
   /**
+   * The restaurant's own payment QR, as uploaded by the owner.
+   *
+   * Plateo neither generates nor reads it: it is a picture of whatever the
+   * restaurant's bank or UPI app produced, printed onto the bill so a guest can
+   * pay from the table. Because Plateo cannot see where the money goes, nothing
+   * in the system treats a scan as a payment - settling the bill is still a
+   * person pressing the button.
+   */
+  @ApiProperty({ nullable: true, example: 'https://api.plateoai.in/uploads/payment-qr/3/a1b2.png' })
+  @Column({ type: 'varchar', length: 512, name: 'payment_qr_url', nullable: true })
+  paymentQrUrl: string | null;
+
+  /** Printed under the QR, so a guest can check they are paying the right place. */
+  @ApiProperty({ nullable: true, example: 'greenbowl@okhdfcbank' })
+  @Column({ type: 'varchar', length: 100, name: 'payment_qr_label', nullable: true })
+  paymentQrLabel: string | null;
+
+  /**
+   * Whether the QR goes on every bill.
+   *
+   * Off by default, and it stays on once switched on - the owner ticks it once
+   * rather than deciding per bill, which is the only way it is any use during a
+   * busy service.
+   */
+  @ApiProperty({ example: false })
+  @Column({ type: 'boolean', name: 'print_payment_qr', default: false })
+  printPaymentQr: boolean;
+
+  /**
    * Whether Plateo pays any attention to stock.
    *
    * DISABLED for everyone until somebody turns it on, and that default is the
