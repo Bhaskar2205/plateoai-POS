@@ -252,6 +252,9 @@ export function FloorView() {
       </div>
 
       <Modal
+        // Full size: this is the screen staff work in all service, not a form
+        // they fill in once. See DishPicker.
+        size="full"
         open={startingAt !== null || counterBill}
         title={startingAt ? `Open a bill for ${startingAt.tableName}` : 'Counter / takeaway bill'}
         description={

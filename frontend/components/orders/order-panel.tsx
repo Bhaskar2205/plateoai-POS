@@ -7,13 +7,14 @@ import {
   Check,
   ChefHat,
   Clock,
+  Gift,
   Landmark,
+  LayoutGrid,
   Minus,
   Plus,
   Printer,
   QrCode,
   Receipt,
-  Gift,
   Trash2,
   X,
 } from 'lucide-react';
@@ -44,6 +45,7 @@ import {
   type OrderItemInput,
 } from '@/lib/queries';
 import type { DiscountType, Order, OrderItem, PaymentMethod } from '@/lib/types';
+import { DishPicker } from '@/components/orders/dish-picker';
 import { ItemPunchRow } from '@/components/orders/item-punch-row';
 import { Button } from '@/components/ui/button';
 import { Badge, Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -96,6 +98,7 @@ export function OrderPanel({
   const [compingItem, setCompingItem] = useState<OrderItem | null>(null);
   const [markingNc, setMarkingNc] = useState(false);
   const [deletingNc, setDeletingNc] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
 
   const addItems = useAddOrderItems({
     onSuccess: () => toast.success('Added to the bill.'),
@@ -228,6 +231,14 @@ export function OrderPanel({
 
   const punch = (item: OrderItemInput) => addItems.mutate({ orderId: order.id, items: [item] });
 
+  // The same board the floor uses to open a bill. Typing is faster once you
+  // know the menu by heart; tapping through sections is what everybody else
+  // does, and adding to a running bill needs both.
+  const punchMany = (items: OrderItemInput[]) => {
+    addItems.mutate({ orderId: order.id, items });
+    setBrowsing(false);
+  };
+
   const isOpen = order.status === 'OPEN';
   const pending = order.items.filter((item) => item.awaitingApproval);
   const live = order.items.filter((item) => item.status !== 'CANCELLED' && !item.awaitingApproval);
@@ -322,7 +333,15 @@ export function OrderPanel({
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
         <div className="space-y-3">
-          {isOpen && <ItemPunchRow onAdd={punch} adding={addItems.isPending} />}
+          {isOpen && (
+            <div className="space-y-2">
+              <ItemPunchRow onAdd={punch} adding={addItems.isPending} />
+              <Button variant="secondary" className="w-full" onClick={() => setBrowsing(true)}>
+                <LayoutGrid className="size-4" aria-hidden />
+                Browse the menu by section
+              </Button>
+            </div>
+          )}
 
           <Card>
             <div className="hidden border-b border-line bg-ground px-4 py-2 text-xs font-semibold tracking-wide text-muted uppercase sm:grid sm:grid-cols-[minmax(0,1fr)_7.5rem_5.5rem_6rem_5rem] sm:gap-3">
@@ -649,6 +668,16 @@ export function OrderPanel({
           </CardBody>
         </Card>
       </div>
+
+      <Modal
+        size="full"
+        open={browsing}
+        title={`Add to ${order.tableName ?? 'this bill'}`}
+        description="Tap through the sections. Everything you pick is added at once."
+        onClose={() => setBrowsing(false)}
+      >
+        <DishPicker submitLabel="Add to bill" submitting={addItems.isPending} onSubmit={punchMany} />
+      </Modal>
 
       <DiscountDialog
         open={discounting}

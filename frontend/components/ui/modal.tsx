@@ -24,8 +24,13 @@ export function Modal({
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
-  /** 'lg' for dialogs that hold a form and a preview side by side. */
-  size?: 'md' | 'lg';
+  /**
+   * 'lg' for dialogs that hold a form and a preview side by side. 'full' is for
+   * the ones a till operator works *inside* rather than fills in - it takes
+   * nearly the whole screen and hands its own layout the space, padding
+   * included, instead of boxing it into a column.
+   */
+  size?: 'md' | 'lg' | 'full';
 }) {
   useEffect(() => {
     if (!open) return;
@@ -59,7 +64,11 @@ export function Modal({
       <div
         className={cn(
           'flex max-h-[92vh] w-full flex-col rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl',
-          size === 'lg' ? 'max-w-4xl' : 'max-w-lg',
+          size === 'full'
+            ? 'h-[92vh] max-w-[96rem] sm:w-[96vw]'
+            : size === 'lg'
+              ? 'max-w-4xl'
+              : 'max-w-lg',
         )}
       >
         <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
@@ -72,7 +81,16 @@ export function Modal({
           </Button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        <div
+          className={cn(
+            'flex-1',
+            // A full-size dialog lays itself out: scrolling belongs to its own
+            // panes, not to one bar down the side of everything.
+            size === 'full' ? 'min-h-0 overflow-hidden' : 'overflow-y-auto px-5 py-4',
+          )}
+        >
+          {children}
+        </div>
 
         {footer && (
           <div className="flex justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>
