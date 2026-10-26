@@ -71,9 +71,31 @@ export function Modal({
               : 'max-w-lg',
         )}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
-          <div className="space-y-1">
-            <h2 className="text-base font-semibold text-ink">{title}</h2>
+        {/* The brand hairline the sign-in screen and the takings band carry.
+            Only on the full size, where the dialog is a screen in its own
+            right rather than a box on top of one. */}
+        {size === 'full' && (
+          <div
+            aria-hidden
+            className="h-1 shrink-0 rounded-t-2xl bg-gradient-to-r from-brand-700 via-brand-500 to-saffron-500"
+          />
+        )}
+
+        <div
+          className={cn(
+            'flex shrink-0 items-start justify-between gap-3 border-b border-line px-5 py-4',
+            size === 'full' && 'bg-ground/40',
+          )}
+        >
+          <div className="space-y-0.5">
+            <h2
+              className={cn(
+                'font-semibold text-ink',
+                size === 'full' ? 'text-lg tracking-tight' : 'text-base',
+              )}
+            >
+              {title}
+            </h2>
             {description && <p className="text-sm text-muted">{description}</p>}
           </div>
           <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close">
