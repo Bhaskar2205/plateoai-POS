@@ -141,6 +141,56 @@ export class RestaurantsController {
     return this.restaurantsService.setPaymentQr(restaurantId, file, userId, context);
   }
 
+  @Post('me/logo')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 12 * 1024 * 1024, files: 1 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({
+    summary: "Upload the logo printed on bills",
+    description:
+      'Owners only. Takes a JPEG, PNG or WebP image, re-encodes it as a lossless PNG on white, ' +
+      'fits it to 600px and puts it on the restaurant in one step. Any previous logo is deleted. ' +
+      'It is printed across the top of the customer bill, above the name, address and GSTIN. The ' +
+      'kitchen ticket never carries it - a cook does not need the branding and the roll is short.',
+  })
+  @ApiOkResponse({ type: PrintSettingsDto })
+  @ApiBadRequestResponse({
+    description: 'Not an image, an unreadable image, or larger than the limit.',
+    type: ErrorResponseDto,
+  })
+  setLogo(
+    @ActiveRestaurantId() restaurantId: number,
+    @CurrentUser('id') userId: number,
+    @UploadedFile() file: Express.Multer.File,
+    @RequestContext() context: AuditContext,
+  ): Promise<PrintSettingsDto> {
+    return this.restaurantsService.setLogo(restaurantId, file, userId, context);
+  }
+
+  @Delete('me/logo')
+  @HttpCode(HttpStatus.OK)
+  @Roles(...RESTAURANT_ADMIN_ROLES)
+  @ApiOperation({
+    summary: 'Remove the bill logo',
+    description: 'Owners only. Bills then print the restaurant name alone at the top.',
+  })
+  @ApiOkResponse({ type: PrintSettingsDto })
+  clearLogo(
+    @ActiveRestaurantId() restaurantId: number,
+    @CurrentUser('id') userId: number,
+    @RequestContext() context: AuditContext,
+  ): Promise<PrintSettingsDto> {
+    return this.restaurantsService.clearLogo(restaurantId, userId, context);
+  }
+
   @Delete('me/payment-qr')
   @HttpCode(HttpStatus.OK)
   @Roles(...RESTAURANT_ADMIN_ROLES)

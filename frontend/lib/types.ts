@@ -596,6 +596,8 @@ export interface Bill {
   restaurantAddress: string | null;
   restaurantPhone: string | null;
   taxNumber: string | null;
+  /** The restaurant's logo, printed above its name at the top of the bill. */
+  logoUrl: string | null;
   tableName: string | null;
   /**
    * The restaurant's payment code, to print on this bill, or null.
@@ -635,6 +637,8 @@ export interface Bill {
  * have to say - see `lib/print-config.ts`.
  */
 export interface PrintSettings {
+  /** Printed across the top of a bill, above the name. Never on a kitchen ticket. */
+  logoUrl: string | null;
   paymentQrUrl: string | null;
   paymentQrLabel: string | null;
   printPaymentQr: boolean;

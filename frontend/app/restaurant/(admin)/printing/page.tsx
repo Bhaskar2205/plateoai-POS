@@ -8,6 +8,7 @@ import { printableWidthMm, thermalPrinterConfig as config } from '@/lib/print-co
 import { printBill, printKotTicket } from '@/lib/print-receipt';
 import { usePrintSettings } from '@/lib/queries';
 import { PageHeader, SectionHeading } from '@/components/page-header';
+import { BillLogoCard } from '@/components/printing/bill-logo-card';
 import { PaymentQrCard } from '@/components/printing/payment-qr-card';
 import { sampleBill, sampleKot } from '@/components/printing/sample-documents';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -56,7 +57,10 @@ export default function PrintingPage() {
         {/* The only thing on this page that is actually a setting. Owners only:
             a payment code decides where a guest's money goes. */}
         {owner ? (
-          <PaymentQrCard />
+          <>
+            <BillLogoCard />
+            <PaymentQrCard />
+          </>
         ) : (
           <Card>
             <CardBody>
@@ -93,6 +97,7 @@ export default function PrintingPage() {
               description="Handed to a guest and sometimes kept for months, so it has to stand on its own as a tax invoice."
               fontSizePx={config.finalBill.fontSizePx}
               rows={[
+                ['Your logo, at the very top', Boolean(settings.data?.logoUrl)],
                 ['Your name, address and phone', config.finalBill.showRestaurantDetails],
                 ['Bill number', config.finalBill.showInvoiceNumber],
                 ['Every item, with prices', config.finalBill.showPrices],
@@ -100,7 +105,7 @@ export default function PrintingPage() {
                 ['GSTIN, and each tax on its own line', config.finalBill.showGST],
                 ['Whether it has been paid, and how', config.finalBill.showPaymentStatus],
                 [
-                  'Your payment QR',
+                  'Your payment QR, then a thank-you',
                   Boolean(settings.data?.printPaymentQr && settings.data.paymentQrUrl),
                 ],
               ]}

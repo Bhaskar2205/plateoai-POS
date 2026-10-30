@@ -360,6 +360,13 @@ export class BillDto {
   @ApiProperty({ nullable: true, example: '08AAAAA0000A1Z5' })
   taxNumber: string | null;
 
+  @ApiProperty({
+    nullable: true,
+    example: 'https://api.plateoai.in/uploads/logo/3/a1b2.png',
+    description: "The restaurant's logo, printed above its name at the top of the bill.",
+  })
+  logoUrl: string | null;
+
   @ApiProperty({ nullable: true, example: 'Table 01' })
   tableName: string | null;
 

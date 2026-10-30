@@ -238,6 +238,7 @@ export function toBillDto(order: Order, restaurant: Restaurant): BillDto {
     restaurantAddress: restaurant.address,
     restaurantPhone: restaurant.phone,
     taxNumber: restaurant.taxNumber,
+    logoUrl: restaurant.logoUrl,
     tableName: order.table?.name ?? null,
     paymentQrUrl: qr.url,
     paymentQrLabel: qr.label,

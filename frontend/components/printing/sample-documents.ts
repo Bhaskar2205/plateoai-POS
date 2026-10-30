@@ -60,6 +60,8 @@ export function sampleBill(session: MeResponse, settings: PrintSettings | undefi
     restaurantAddress: session.restaurant.address ?? null,
     restaurantPhone: session.restaurant.phone ?? null,
     taxNumber: session.restaurant.taxNumber ?? null,
+    // The real logo, so a test print proves it is the right size on the roll.
+    logoUrl: settings?.logoUrl ?? session.restaurant.logoUrl ?? null,
     tableName: 'TEST',
     // The sample shows the QR whenever it is switched on, including on the
     // "settled" line below - this is the one place it is worth seeing it even

@@ -281,6 +281,59 @@ export class RestaurantsService {
     return toPrintSettings(restaurant);
   }
 
+  /**
+   * Stores the restaurant's logo and puts it on the profile.
+   *
+   * One step, like the payment code: the endpoint takes a file and never a URL,
+   * so nothing can point a printed bill at an image somebody else controls.
+   */
+  async setLogo(
+    restaurantId: number,
+    file: Express.Multer.File,
+    userId: number,
+    context: AuditContext,
+  ): Promise<PrintSettingsDto> {
+    const restaurant = await this.findById(restaurantId);
+    const previous = restaurant.logoUrl;
+
+    const stored = await this.uploadsService.storeLogo(restaurantId, file);
+
+    restaurant.logoUrl = stored.url;
+    await this.restaurantsRepository.save(restaurant);
+
+    // Only once the new logo is safely the live one.
+    await this.uploadsService.removeStored(previous);
+
+    await this.recordQrChange(
+      restaurantId,
+      userId,
+      previous ? 'Bill logo replaced' : 'Bill logo added',
+      context,
+    );
+
+    return toPrintSettings(restaurant);
+  }
+
+  /** Removes the logo. Bills fall back to printing the restaurant's name alone. */
+  async clearLogo(
+    restaurantId: number,
+    userId: number,
+    context: AuditContext,
+  ): Promise<PrintSettingsDto> {
+    const restaurant = await this.findById(restaurantId);
+    const previous = restaurant.logoUrl;
+
+    restaurant.logoUrl = null;
+    await this.restaurantsRepository.save(restaurant);
+    await this.uploadsService.removeStored(previous);
+
+    if (previous) {
+      await this.recordQrChange(restaurantId, userId, 'Bill logo removed', context);
+    }
+
+    return toPrintSettings(restaurant);
+  }
+
   /** Removes the code and stops printing it - there is nothing left to print. */
   async clearPaymentQr(
     restaurantId: number,
@@ -483,6 +536,7 @@ export class RestaurantsService {
 /** The three printed-bill fields, without the rest of the restaurant row. */
 function toPrintSettings(restaurant: Restaurant): PrintSettingsDto {
   return {
+    logoUrl: restaurant.logoUrl,
     paymentQrUrl: restaurant.paymentQrUrl,
     paymentQrLabel: restaurant.paymentQrLabel,
     printPaymentQr: restaurant.printPaymentQr,

@@ -5,7 +5,7 @@ import sharp from 'sharp';
 import type { AppConfig } from 'src/config/configuration';
 import { CloudflareImagesStorage } from './storage/cloudflare-images.storage';
 import { LocalDiskPhotoStorage } from './storage/local-disk.storage';
-import { PAYMENT_QR, type PhotoStorage, type StoredPhoto } from './storage/photo-storage.interface';
+import { LOGO, PAYMENT_QR, type PhotoStorage, type StoredPhoto } from './storage/photo-storage.interface';
 
 /**
  * Dish photos: accept a file from a phone, and store something safe to serve.
@@ -40,6 +40,12 @@ const WEBP_QUALITY = 80;
  * the quiet zone scanners need on every other.
  */
 const QR_MAX_EDGE = 1000;
+
+/**
+ * A logo is printed across the top of a bill at about 40mm, which on a 203 dpi
+ * head is 320 dots. 600 gives that headroom without storing a poster.
+ */
+const LOGO_MAX_EDGE = 600;
 
 /** Magic bytes for the formats we accept, checked before handing anything to sharp. */
 const SIGNATURES: Array<{ format: string; test: (bytes: Buffer) => boolean }> = [
@@ -227,6 +233,62 @@ export class UploadsService {
     }
 
     return this.storage.store(restaurantId, output, width, height, PAYMENT_QR);
+  }
+
+  /**
+   * Stores the restaurant's logo for the top of its bills.
+   *
+   * Flattened onto white and written as a lossless PNG, like the payment code
+   * and for the same reason: a logo is type or line art, the thermal head
+   * renders it in one bit, and a lossy codec leaves grey fringes that dither
+   * into mush. Transparency is flattened rather than kept because a transparent
+   * logo prints as a black rectangle on some drivers.
+   */
+  async storeLogo(restaurantId: number, file: Express.Multer.File): Promise<StoredPhoto> {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('No image was uploaded.');
+    }
+
+    if (file.size > this.config.maxBytes) {
+      throw new BadRequestException(
+        `That image is larger than ${Math.round(this.config.maxBytes / (1024 * 1024))} MB.`,
+      );
+    }
+
+    if (!ACCEPTED_MIME_TYPES.includes(file.mimetype)) {
+      throw new BadRequestException('The logo must be a JPEG, PNG or WebP image.');
+    }
+
+    if (!SIGNATURES.some((signature) => signature.test(file.buffer))) {
+      throw new BadRequestException('That file is not a JPEG, PNG or WebP image.');
+    }
+
+    let output: Buffer;
+    let width: number;
+    let height: number;
+
+    try {
+      const result = await sharp(file.buffer, { failOn: 'error' })
+        .rotate()
+        .resize({
+          width: LOGO_MAX_EDGE,
+          height: LOGO_MAX_EDGE,
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .flatten({ background: '#ffffff' })
+        .png({ compressionLevel: 9 })
+        .toBuffer({ resolveWithObject: true });
+
+      output = result.data;
+      width = result.info.width;
+      height = result.info.height;
+    } catch (error) {
+      this.logger.warn(`Rejected an unreadable logo upload: ${(error as Error).message}`);
+      throw new BadRequestException('That image could not be read. Try a different file.');
+    }
+
+    return this.storage.store(restaurantId, output, width, height, LOGO);
   }
 
   /** Absolute path of the uploads root, resolved once from the configured value. */

@@ -1439,7 +1439,36 @@ export const useUpdatePrintSettings = (
  * `fetch` rather than `apiFetch`, because the body is multipart: the browser has
  * to set the boundary itself, and a JSON content type would break it.
  */
-export const useUploadPaymentQr = (options?: UseMutationOptions<PrintSettings, Error, File>) => {
+export const useUploadPaymentQr = (options?: UseMutationOptions<PrintSettings, Error, File>) =>
+  useUploadPrintImage('payment-qr', options);
+
+/** The logo printed across the top of a bill. */
+export const useUploadLogo = (options?: UseMutationOptions<PrintSettings, Error, File>) =>
+  useUploadPrintImage('logo', options);
+
+export const useClearLogo = (options?: UseMutationOptions<PrintSettings, Error, void>) => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => apiFetch<PrintSettings>('/restaurants/me/logo', { method: 'DELETE' }),
+    ...options,
+    onSuccess: (settings, ...rest) => {
+      queryClient.setQueryData(queryKeys.printSettings, settings);
+      options?.onSuccess?.(settings, ...rest);
+    },
+  });
+};
+
+/**
+ * Uploads one of the two images a bill can carry.
+ *
+ * `fetch` rather than `apiFetch`, because the body is multipart: the browser has
+ * to set the boundary itself, and a JSON content type would break it.
+ */
+const useUploadPrintImage = (
+  resource: 'payment-qr' | 'logo',
+  options?: UseMutationOptions<PrintSettings, Error, File>,
+) => {
   const queryClient = useQueryClient();
 
   return useMutation({
@@ -1448,7 +1477,7 @@ export const useUploadPaymentQr = (options?: UseMutationOptions<PrintSettings, E
       body.append('file', file);
 
       const token = tokenStorage.get();
-      const response = await fetch(`${API_BASE_URL}/restaurants/me/payment-qr`, {
+      const response = await fetch(`${API_BASE_URL}/restaurants/me/${resource}`, {
         method: 'POST',
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body,
@@ -1458,7 +1487,7 @@ export const useUploadPaymentQr = (options?: UseMutationOptions<PrintSettings, E
       const payload = text ? (JSON.parse(text) as PrintSettings & { message?: string }) : null;
 
       if (!response.ok) {
-        throw new ApiError(response.status, payload?.message ?? 'The QR could not be uploaded.');
+        throw new ApiError(response.status, payload?.message ?? 'That image could not be uploaded.');
       }
 
       return payload!;

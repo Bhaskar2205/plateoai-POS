@@ -25,7 +25,7 @@
  */
 export interface AssetKind {
   /** Folder on the local volume, and the label recorded in Cloudflare metadata. */
-  readonly folder: 'dishes' | 'payment-qr';
+  readonly folder: 'dishes' | 'payment-qr' | 'logo';
   readonly extension: 'webp' | 'png';
   readonly mimeType: 'image/webp' | 'image/png';
 }
@@ -38,6 +38,19 @@ export const DISH_PHOTO: AssetKind = {
 
 export const PAYMENT_QR: AssetKind = {
   folder: 'payment-qr',
+  extension: 'png',
+  mimeType: 'image/png',
+};
+
+/**
+ * The restaurant's own logo, printed at the top of a bill.
+ *
+ * PNG for the same reason as the QR: a logo is usually line art or type on a
+ * flat background, and a thermal head renders it in one bit. A lossy codec puts
+ * grey fringes on exactly the edges that then dither into mush.
+ */
+export const LOGO: AssetKind = {
+  folder: 'logo',
   extension: 'png',
   mimeType: 'image/png',
 };

@@ -63,9 +63,14 @@ export function Modal({
     >
       <div
         className={cn(
-          'flex max-h-[92vh] w-full flex-col rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl',
+          // dvh, not vh. On mobile Chrome `vh` is measured against the
+          // viewport with the URL bar hidden, so a dialog sized in vh is taller
+          // than what the phone is actually showing and its footer - the submit
+          // button - sits below the fold until the user scrolls. Everything
+          // else in this app already uses dvh; this was the last holdout.
+          'flex max-h-[92dvh] w-full flex-col rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl',
           size === 'full'
-            ? 'h-[92vh] max-w-[96rem] sm:w-[96vw]'
+            ? 'h-[92dvh] max-w-[96rem] sm:w-[96vw]'
             : size === 'lg'
               ? 'max-w-4xl'
               : 'max-w-lg',

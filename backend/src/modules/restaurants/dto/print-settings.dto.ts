@@ -15,6 +15,13 @@ const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? val
 export class PrintSettingsDto {
   @ApiProperty({
     nullable: true,
+    example: 'https://api.plateoai.in/uploads/logo/3/a1b2.png',
+    description: "The restaurant's logo, printed across the top of a bill, or null.",
+  })
+  logoUrl: string | null;
+
+  @ApiProperty({
+    nullable: true,
     example: 'https://api.plateoai.in/uploads/payment-qr/3/a1b2.png',
     description: 'The uploaded payment code, or null when none has been added.',
   })

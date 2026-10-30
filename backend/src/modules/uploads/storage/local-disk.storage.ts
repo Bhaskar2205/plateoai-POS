@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { AppConfig } from 'src/config/configuration';
-import { DISH_PHOTO, PAYMENT_QR, type AssetKind, type PhotoStorage, type StoredPhoto } from './photo-storage.interface';
+import { DISH_PHOTO, LOGO, PAYMENT_QR, type AssetKind, type PhotoStorage, type StoredPhoto } from './photo-storage.interface';
 
 /**
  * Photos on the API's own volume, served by Express.
@@ -89,7 +89,7 @@ export class LocalDiskPhotoStorage implements PhotoStorage {
     // Matched against the folders we actually write, never against whatever the
     // URL happens to contain: this is the check that keeps a delete inside the
     // uploads tree even before the resolved path is re-tested below.
-    const kind = [DISH_PHOTO, PAYMENT_QR].find((candidate) => candidate.folder === folder);
+    const kind = [DISH_PHOTO, PAYMENT_QR, LOGO].find((candidate) => candidate.folder === folder);
 
     if (!kind) return null;
     if (!/^\d+$/.test(restaurantId)) return null;

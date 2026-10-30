@@ -36,6 +36,7 @@ describe('Printed bill settings (e2e)', () => {
 
   const settings = '/restaurants/me/print-settings';
   const qr = '/restaurants/me/payment-qr';
+  const logo = '/restaurants/me/logo';
   const orders = '/restaurants/me/orders';
 
   const unique = () => Math.random().toString(36).slice(2, 7);
@@ -101,7 +102,12 @@ describe('Printed bill settings (e2e)', () => {
     it('reports no code and no printing', async () => {
       const body = (await api(app).get(settings).set(headers).expect(200)).body;
 
-      expect(body).toEqual({ paymentQrUrl: null, paymentQrLabel: null, printPaymentQr: false });
+      expect(body).toEqual({
+        logoUrl: null,
+        paymentQrUrl: null,
+        paymentQrLabel: null,
+        printPaymentQr: false,
+      });
     });
 
     it('refuses to switch printing on, rather than silently printing nothing', async () => {
@@ -146,6 +152,68 @@ describe('Printed bill settings (e2e)', () => {
       const body = (await api(app).get(settings).set(headers).expect(200)).body;
 
       expect(body.paymentQrUrl).not.toContain('/uploads/dishes/');
+    });
+  });
+
+  describe('the logo printed on bills', () => {
+    it('refuses a file that is not an image', async () => {
+      await api(app)
+        .post(logo)
+        .set(headers)
+        .attach('file', Buffer.from('not an image'), {
+          filename: 'logo.png',
+          contentType: 'image/png',
+        })
+        .expect(400);
+    });
+
+    it('stores it, re-encoded as a PNG of our own', async () => {
+      const body = (
+        await api(app)
+          .post(logo)
+          .set(headers)
+          .attach('file', await pngBytes(120), { filename: 'logo.png', contentType: 'image/png' })
+          .expect(200)
+      ).body;
+
+      expect(body.logoUrl).toEqual(expect.stringContaining('/uploads/logo/'));
+      expect(body.logoUrl).toEqual(expect.stringMatching(/\.png$/));
+    });
+
+    it('keeps it out of the menu photo and payment folders', async () => {
+      const body = (await api(app).get(settings).set(headers).expect(200)).body;
+
+      expect(body.logoUrl).not.toContain('/uploads/dishes/');
+      expect(body.logoUrl).not.toContain('/uploads/payment-qr/');
+    });
+
+    it('prints it on the bill', async () => {
+      const bill = await billOf((await openBill()).id);
+
+      expect(bill.logoUrl).toEqual(expect.stringContaining('/uploads/logo/'));
+    });
+
+    it('refuses a manager', async () => {
+      const manager = await memberWithRole(owner.restaurantId, UserRole.RESTAURANT_MANAGER);
+
+      await api(app)
+        .post(logo)
+        .set(auth(manager))
+        .attach('file', await pngBytes(), { filename: 'logo.png', contentType: 'image/png' })
+        .expect(403);
+      await api(app).delete(logo).set(auth(manager)).expect(403);
+    });
+
+    it('can be removed, and the bill falls back to the name alone', async () => {
+      const body = (await api(app).delete(logo).set(headers).expect(200)).body;
+
+      expect(body.logoUrl).toBeNull();
+
+      const bill = await billOf((await openBill()).id);
+
+      expect(bill.logoUrl).toBeNull();
+      // The name is not optional - it is what identifies the invoice.
+      expect(bill.restaurantName).toBe('QR House');
     });
   });
 

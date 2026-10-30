@@ -59,6 +59,14 @@ const basePaperCss = (fontSizePx: number) => `
   .foot { text-align: center; margin-top: 1.5mm; }
   .qr { text-align: center; margin-top: 1.5mm; }
   .qr img { width: 30mm; height: 30mm; object-fit: contain; display: block; margin: 0 auto 0.5mm; }
+  /* The logo is the first thing on the bill. Capped by height as well as width
+     so a tall, narrow mark cannot push the whole receipt down the roll. */
+  .logo { text-align: center; margin-bottom: 1mm; }
+  .logo img { max-width: 44mm; max-height: 18mm; width: auto; height: auto; display: block; margin: 0 auto; }
+  .thanks { text-align: center; font-weight: 700; margin-top: 1.5mm; }
+  /* Each part of the meta line stays whole when the line wraps, so a long table
+     name never leaves "am" stranded on a line of its own. */
+  .part { white-space: nowrap; }
 `;
 
 /**
@@ -169,7 +177,16 @@ async function printHtml(title: string, bodyHtml: string, fontSizePx: number): P
   // puts the driver's cut in the right place.
   await whenLaidOut(frame);
 
-  const heightMm = Math.max(20, Math.ceil(doc.body.scrollHeight / PX_PER_MM + TAIL_MM));
+  // Never wider than it is tall.
+  //
+  // `size: 80mm 51mm` is a landscape page - a box wider than it is high - and
+  // the print pipeline treats it as one, turning the receipt ninety degrees so
+  // it comes off the roll sideways and unreadable. A short kitchen ticket hit
+  // this every time. The floor is therefore the roll's own width plus the tail,
+  // which costs a few millimetres of paper on the shortest tickets and
+  // guarantees the orientation on all of them.
+  const contentMm = Math.ceil(doc.body.scrollHeight / PX_PER_MM + TAIL_MM);
+  const heightMm = Math.max(ROLL_WIDTH_MM + TAIL_MM, contentMm);
 
   const page = doc.createElement('style');
   page.textContent = `@page { size: ${ROLL_WIDTH_MM}mm ${heightMm}mm; margin: 0; }`;
@@ -214,11 +231,12 @@ export function printKotTicket(ticket: KotPrint): Promise<void> {
     kot.showOrderTime ? clock(ticket.createdAt) : null,
   ]
     .filter(Boolean)
+    .map((part) => `<span class="part">${escapeHtml(part as string)}</span>`)
     .join(' | ');
 
   const body = `
     ${kot.showTable ? `<div class="big">${escapeHtml(ticket.tableName ?? 'COUNTER')}</div>` : ''}
-    <div class="mid">${escapeHtml(meta)}</div>
+    <div class="mid">${meta}</div>
     <hr>
     <table>${lines}</table>
     <hr>
@@ -257,16 +275,26 @@ export function printBill(bill: Bill): Promise<void> {
   const row = (label: string, value: string) =>
     `<tr><td class="label" colspan="2">${escapeHtml(label)}</td><td class="amount">${value}</td></tr>`;
 
-  const header = finalBill.showRestaurantDetails
-    ? `<div class="name">${escapeHtml(bill.restaurantName)}</div>` +
-      [bill.restaurantAddress, bill.restaurantPhone]
-        .filter(Boolean)
-        .map((detail) => `<div class="mid">${escapeHtml(detail as string)}</div>`)
-        .join('') +
-      (finalBill.showGST && bill.taxNumber
-        ? `<div class="mid">GSTIN ${escapeHtml(bill.taxNumber)}</div>`
-        : '')
-    : `<div class="name">${escapeHtml(bill.restaurantName)}</div>`;
+  /* The top of the bill, in the order a guest reads it: the restaurant's mark,
+     then who they are, where, and the registration the invoice is issued under.
+     The logo is the one optional part - a restaurant that has not uploaded one
+     gets its name in its place rather than a gap. */
+  const logo = bill.logoUrl
+    ? `<div class="logo"><img src="${escapeHtml(bill.logoUrl)}" alt=""></div>`
+    : '';
+
+  const header =
+    logo +
+    `<div class="name">${escapeHtml(bill.restaurantName)}</div>` +
+    (finalBill.showRestaurantDetails
+      ? [bill.restaurantAddress, bill.restaurantPhone]
+          .filter(Boolean)
+          .map((detail) => `<div class="mid">${escapeHtml(detail as string)}</div>`)
+          .join('') +
+        (finalBill.showGST && bill.taxNumber
+          ? `<div class="mid">GSTIN ${escapeHtml(bill.taxNumber)}</div>`
+          : '')
+      : '');
 
   // Again one line rather than three: which bill, which table, when.
   const meta = [
@@ -275,6 +303,7 @@ export function printBill(bill: Bill): Promise<void> {
     timestamp(bill.settledAt ?? new Date().toISOString()),
   ]
     .filter(Boolean)
+    .map((part) => `<span class="part">${escapeHtml(part as string)}</span>`)
     .join(' | ');
 
   const taxRows =
@@ -317,7 +346,7 @@ export function printBill(bill: Bill): Promise<void> {
   const body = `
     ${header}
     <hr>
-    <div class="mid">${escapeHtml(meta)}</div>
+    <div class="mid">${meta}</div>
     <hr>
     <table>${lines}</table>
     <hr>
@@ -335,8 +364,9 @@ export function printBill(bill: Bill): Promise<void> {
           : ''
       }
     </table>
+    <div class="foot">${status}</div>
     ${qr}
-    <div class="foot">${status}${status ? '<br>' : ''}Thank you. Please visit again.</div>
+    <div class="thanks">Thanks for visiting us</div>
   `;
 
   return printHtml(`Bill ${bill.orderNumber}`, body, finalBill.fontSizePx);

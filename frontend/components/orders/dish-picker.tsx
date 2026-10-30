@@ -90,7 +90,7 @@ function DishThumb({ dish, dimmed }: { dish: Dish; dimmed: boolean }) {
     <span
       aria-hidden
       className={cn(
-        'relative grid size-14 shrink-0 place-items-center overflow-hidden rounded-xl',
+        'relative grid size-11 shrink-0 place-items-center overflow-hidden rounded-xl sm:size-14',
         usePhoto ? 'bg-ground' : tintFor(dish.name),
         dimmed && 'opacity-50 grayscale',
       )}
@@ -106,7 +106,13 @@ function DishThumb({ dish, dimmed }: { dish: Dish; dimmed: boolean }) {
           className="size-full object-cover"
         />
       ) : (
-        <span className="text-base font-bold">{monogram(dish.name)}</span>
+        <span className="text-sm font-bold sm:text-base">{monogram(dish.name)}</span>
+      )}
+
+      {dish.dietType && (
+        <span className="absolute top-0.5 left-0.5 rounded-[3px] bg-white/90 p-px">
+          <DietMark diet={dish.dietType} />
+        </span>
       )}
     </span>
   );
@@ -310,7 +316,7 @@ export function DishPicker({
                       disabled={!dish.isAvailable}
                       onClick={() => change(dish.id, 1)}
                       className={cn(
-                        'group relative flex h-full w-full items-center gap-3 rounded-2xl border p-2.5 text-left transition-all duration-150',
+                        'group relative flex h-full w-full items-center gap-2 rounded-2xl border p-2.5 text-left transition-all duration-150 sm:gap-3',
                         'focus-visible:ring-4 focus-visible:ring-brand-500/25 focus-visible:outline-none',
                         dish.isAvailable
                           ? quantity > 0
@@ -322,8 +328,7 @@ export function DishPicker({
                       <DishThumb dish={dish} dimmed={!dish.isAvailable} />
 
                       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <span className="flex items-start gap-1.5">
-                          {dish.dietType && <span className="mt-0.5"><DietMark diet={dish.dietType} /></span>}
+                        <span className="block">
                           <span
                             className={cn(
                               // break-words as well as the clamp: the clamp only
