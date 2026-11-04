@@ -1,4 +1,5 @@
 import {
+  MIN_PAGE_MM,
   PX_PER_MM,
   TAIL_MM,
   printableWidthMm,
@@ -31,22 +32,32 @@ const basePaperCss = (fontSizePx: number) => `
   html, body { margin: 0; background: #fff; }
   body {
     width: ${printableWidthMm()}mm;
-    padding: 2mm;
+    padding: 1.5mm;
     box-sizing: border-box;
     font-family: "Courier New", ui-monospace, monospace;
     font-size: ${fontSizePx}px;
+    /* 600, not normal. A thermal head burns thin strokes lighter than a screen
+       draws them, and a receipt from the field came back barely readable. Bold
+       type costs nothing on paper and survives a worn print head. */
+    font-weight: 600;
     line-height: 1.25;
     color: #000;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
   .mid { text-align: center; }
-  .big { font-size: ${fontSizePx + 7}px; font-weight: 700; text-align: center; margin: 1mm 0; }
+  .big { font-size: ${fontSizePx + 7}px; font-weight: 700; text-align: center; margin: .5mm 0; }
   .name { font-size: ${fontSizePx + 2}px; font-weight: 700; text-align: center; }
-  hr { border: 0; border-top: 1px dashed #000; margin: 1.2mm 0; }
+  /* Address, phone and GSTIN: a notch down and tighter-leaded than the rest.
+     A guest reads these once, if ever, and at full size a long street address
+     wraps to three lines and pushes the whole bill down the roll. Still bold,
+     so a worn print head cannot swallow it. */
+  .sub { text-align: center; font-size: .88em; line-height: 1.15; }
+  hr { border: 0; border-top: 1px dashed #000; margin: .7mm 0; }
   table { width: 100%; border-collapse: collapse; }
-  td { vertical-align: top; padding: .3mm 0; }
+  td { vertical-align: top; padding: .2mm 0; }
   td.qty { width: 7mm; font-weight: 700; }
+  td.amount, .totals td { font-variant-numeric: tabular-nums; }
   td.amount { text-align: right; white-space: nowrap; padding-left: 1.5mm; }
   .note { font-style: italic; padding-left: 7mm; }
   /* Slightly smaller, so a long dish name and its unit price still share one
@@ -55,15 +66,18 @@ const basePaperCss = (fontSizePx: number) => `
      be able to read it off thermal paper. */
   .unit { font-style: normal; font-size: .9em; opacity: .85; white-space: nowrap; }
   .totals .label { text-align: right; }
-  .grand td { font-weight: 700; border-top: 1px solid #000; padding-top: .8mm; }
-  .foot { text-align: center; margin-top: 1.5mm; }
-  .qr { text-align: center; margin-top: 1.5mm; }
+  .grand td { font-size: ${fontSizePx + 2}px; font-weight: 700; border-top: 1px solid #000; padding-top: .8mm; }
+  .foot { text-align: center; margin-top: 1mm; }
+  .qr { text-align: center; margin-top: 1mm; }
   .qr img { width: 30mm; height: 30mm; object-fit: contain; display: block; margin: 0 auto 0.5mm; }
   /* The logo is the first thing on the bill. Capped by height as well as width
      so a tall, narrow mark cannot push the whole receipt down the roll. */
-  .logo { text-align: center; margin-bottom: 1mm; }
-  .logo img { max-width: 44mm; max-height: 18mm; width: auto; height: auto; display: block; margin: 0 auto; }
-  .thanks { text-align: center; font-weight: 700; margin-top: 1.5mm; }
+  .logo { text-align: center; margin-bottom: .5mm; }
+  /* 14mm, down from 32 by way of 20. The mark still reads as the
+     restaurant's - it is the first thing on the paper, with nothing competing
+     with it - and every millimetre here comes off every bill of the day. */
+  .logo img { max-width: 44mm; max-height: 14mm; width: auto; height: auto; display: block; margin: 0 auto; }
+  .thanks { text-align: center; font-weight: 700; margin-top: 1mm; }
   /* Each part of the meta line stays whole when the line wraps, so a long table
      name never leaves "am" stranded on a line of its own. */
   .part { white-space: nowrap; }
@@ -177,16 +191,16 @@ async function printHtml(title: string, bodyHtml: string, fontSizePx: number): P
   // puts the driver's cut in the right place.
   await whenLaidOut(frame);
 
-  // Never wider than it is tall.
+  // As long as the content, and no longer.
   //
-  // `size: 80mm 51mm` is a landscape page - a box wider than it is high - and
-  // the print pipeline treats it as one, turning the receipt ninety degrees so
-  // it comes off the roll sideways and unreadable. A short kitchen ticket hit
-  // this every time. The floor is therefore the roll's own width plus the tail,
-  // which costs a few millimetres of paper on the shortest tickets and
-  // guarantees the orientation on all of them.
+  // This used to be floored at a whole roll width on the theory that a page
+  // wider than it is tall would be turned ninety degrees on its way to the
+  // roll. It is not: Chrome renders a 37mm page as upright as a 120mm one, and
+  // the floor was feeding roughly 47mm of blank paper under every kitchen
+  // ticket - which a restaurant reports, correctly, as the printer eating the
+  // roll. The only floor left is the driver's minimum form length.
   const contentMm = Math.ceil(doc.body.scrollHeight / PX_PER_MM + TAIL_MM);
-  const heightMm = Math.max(ROLL_WIDTH_MM + TAIL_MM, contentMm);
+  const heightMm = Math.max(MIN_PAGE_MM, contentMm);
 
   const page = doc.createElement('style');
   page.textContent = `@page { size: ${ROLL_WIDTH_MM}mm ${heightMm}mm; margin: 0; }`;
@@ -289,10 +303,10 @@ export function printBill(bill: Bill): Promise<void> {
     (finalBill.showRestaurantDetails
       ? [bill.restaurantAddress, bill.restaurantPhone]
           .filter(Boolean)
-          .map((detail) => `<div class="mid">${escapeHtml(detail as string)}</div>`)
+          .map((detail) => `<div class="sub">${escapeHtml(detail as string)}</div>`)
           .join('') +
         (finalBill.showGST && bill.taxNumber
-          ? `<div class="mid">GSTIN ${escapeHtml(bill.taxNumber)}</div>`
+          ? `<div class="sub">GSTIN ${escapeHtml(bill.taxNumber)}</div>`
           : '')
       : '');
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, ChefHat, Minus, Printer, Receipt, Scissors, Ruler } from 'lucide-react';
+import { Check, ChefHat, Minus, Printer, Receipt, Ruler, Scissors, Settings2 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canManageTables } from '@/lib/permissions';
@@ -146,6 +146,46 @@ export default function PrintingPage() {
                   hint="Performed by the printer"
                 />
               </dl>
+
+              {/* Set once per till. Without it the browser adds its own header
+                  and footer, forces a margin, shrinks the type and feeds a
+                  great deal of blank roll - which is exactly what a restaurant
+                  reports as "the text is tiny and it wastes paper". */}
+              <div className="rounded-xl border border-warn-600/30 bg-warn-50 p-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-warn-600">
+                  <Settings2 className="size-4" aria-hidden />
+                  Set these once in the print dialog, on every till
+                </p>
+                <dl className="mt-2.5 space-y-1.5 text-sm text-ink">
+                  <div className="flex gap-2">
+                    <dt className="w-40 shrink-0 text-muted">Destination</dt>
+                    <dd className="font-medium">your thermal printer, not Save as PDF</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-40 shrink-0 text-muted">Margins</dt>
+                    <dd className="font-semibold text-warn-600">None</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-40 shrink-0 text-muted">Headers and footers</dt>
+                    <dd className="font-semibold text-warn-600">off</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-40 shrink-0 text-muted">Scale</dt>
+                    <dd className="font-medium">100%, never &ldquo;Fit to page&rdquo;</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-40 shrink-0 text-muted">Paper size</dt>
+                    <dd className="font-medium">
+                      the {config.paperWidthMm}mm roll, not A4 or Letter
+                    </dd>
+                  </div>
+                </dl>
+                <p className="mt-2.5 text-xs leading-relaxed text-warn-600">
+                  With margins left on, the browser prints the date and the page address onto your
+                  receipt, shrinks the text and feeds far more roll than the bill needs. Chrome
+                  remembers these per printer, so it is a one-off.
+                </p>
+              </div>
 
               <p className="rounded-xl bg-ground/60 p-3 text-xs leading-relaxed text-muted ring-1 ring-line">
                 Plateo prints through your browser to whichever printer the till already has

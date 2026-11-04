@@ -34,7 +34,10 @@ export const thermalPrinterConfig = {
     showTable: true,
     showSpecialInstructions: true,
     showOrderTime: true,
-    fontSizePx: 14,
+    // 16, not 14. A cook reads this at arm's length over a pass, and a thermal
+    // head renders type lighter than a screen does - a printed receipt from the
+    // field came back with the text barely legible at 14.
+    fontSizePx: 16,
   },
 
   finalBill: {
@@ -44,7 +47,17 @@ export const thermalPrinterConfig = {
     showPaymentStatus: true,
     showRestaurantDetails: true,
     showInvoiceNumber: true,
-    fontSizePx: 12,
+    // 14, not 12. Measured on the head rather than guessed: rasterising the
+    // bill at the printer's own 203 dpi puts a line of this type at 21 dots,
+    // 2.63mm - above the 17-dot cell of the printer's own Font B and above the
+    // reference receipt a restaurant sent in as the standard to match. It also
+    // cuts the strokes that land on a single dot, which is what prints as a
+    // broken grey line on a worn head, from 29 to 18 in a whole bill.
+    //
+    // Not 15 or 16. Those gain a quarter of a millimetre of type and cost 9 to
+    // 13mm of roll on every bill of the day, which is the complaint this is
+    // answering.
+    fontSizePx: 14,
   },
 } as const;
 
@@ -61,6 +74,23 @@ export const PX_PER_MM = 96 / 25.4;
  * blank paper under them.
  */
 export const TAIL_MM = 2;
+
+/**
+ * The shortest page worth sending to a roll printer.
+ *
+ * Nothing to do with orientation. Chrome renders a page shorter than it is wide
+ * perfectly upright - rendering the same ticket at 37, 60, 79 and 120mm and
+ * reading the page box, the `/Rotate` entry and the first text matrix out of the
+ * resulting PDF gives upright text and no rotation at every one of them. The
+ * earlier floor of a whole roll width was guarding against something the
+ * browser does not do, and it fed about 47mm of blank paper under every
+ * kitchen ticket.
+ *
+ * What is real is the driver's own minimum form length: Windows thermal drivers
+ * commonly refuse or pad a page under about 30mm. 40mm clears that with room to
+ * spare and is still less than half of what the old floor cost.
+ */
+export const MIN_PAGE_MM = 40;
 
 /**
  * How wide the printable area is, worked out from the dot count rather than
