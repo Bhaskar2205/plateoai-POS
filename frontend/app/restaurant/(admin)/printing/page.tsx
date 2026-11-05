@@ -4,11 +4,16 @@ import { Check, ChefHat, Minus, Printer, Receipt, Ruler, Scissors, Settings2 } f
 import { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { canManageTables } from '@/lib/permissions';
-import { printableWidthMm, thermalPrinterConfig as config } from '@/lib/print-config';
+import {
+  paperFor,
+  paperWidthOrDefault,
+  thermalPrinterConfig as config,
+} from '@/lib/print-config';
 import { printBill, printKotTicket } from '@/lib/print-receipt';
 import { usePrintSettings } from '@/lib/queries';
 import { PageHeader, SectionHeading } from '@/components/page-header';
 import { BillLogoCard } from '@/components/printing/bill-logo-card';
+import { PaperWidthCard } from '@/components/printing/paper-width-card';
 import { PaymentQrCard } from '@/components/printing/payment-qr-card';
 import { sampleBill, sampleKot } from '@/components/printing/sample-documents';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -28,6 +33,7 @@ export default function PrintingPage() {
   const toast = useToast();
   const owner = canManageTables(session?.user.role);
   const settings = usePrintSettings(owner);
+  const paper = paperFor(paperWidthOrDefault(settings.data?.paperWidthMm));
   const [testing, setTesting] = useState<'kot' | 'bill' | null>(null);
 
   if (!session) return null;
@@ -37,7 +43,7 @@ export default function PrintingPage() {
 
     try {
       await (which === 'kot'
-        ? printKotTicket(sampleKot(session))
+        ? printKotTicket(sampleKot(session, settings.data))
         : printBill(sampleBill(session, settings.data)));
     } catch (error) {
       toast.error(error instanceof Error ? error : new Error('Printing is not available here.'));
@@ -58,6 +64,7 @@ export default function PrintingPage() {
             a payment code decides where a guest's money goes. */}
         {owner ? (
           <>
+            <PaperWidthCard />
             <BillLogoCard />
             <PaymentQrCard />
           </>
@@ -65,7 +72,8 @@ export default function PrintingPage() {
           <Card>
             <CardBody>
               <p className="text-sm text-muted">
-                The payment QR printed on bills is set by the restaurant owner.
+                The paper width and the payment QR printed on bills are set by the restaurant
+                owner.
               </p>
             </CardBody>
           </Card>
@@ -79,7 +87,7 @@ export default function PrintingPage() {
               icon={<ChefHat className="size-4" aria-hidden />}
               title="Kitchen ticket (KOT)"
               description="Read at arm's length over a pass, then thrown away. Kept as short as the roll allows."
-              fontSizePx={config.kot.fontSizePx}
+              fontSizePx={paper.kotFontPx}
               rows={[
                 ['Table, in large type', config.kot.showTable],
                 ['What was ordered, and how many', true],
@@ -95,7 +103,7 @@ export default function PrintingPage() {
               icon={<Receipt className="size-4" aria-hidden />}
               title="Customer bill"
               description="Handed to a guest and sometimes kept for months, so it has to stand on its own as a tax invoice."
-              fontSizePx={config.finalBill.fontSizePx}
+              fontSizePx={paper.billFontPx}
               rows={[
                 ['Your logo, at the very top', Boolean(settings.data?.logoUrl)],
                 ['Your name, address and phone', config.finalBill.showRestaurantDetails],
@@ -124,14 +132,14 @@ export default function PrintingPage() {
                 <Spec
                   icon={<Ruler className="size-4" aria-hidden />}
                   label="Roll"
-                  value={`${config.paperWidthMm} mm`}
-                  hint={`${printableWidthMm().toFixed(1)} mm printable`}
+                  value={`${paper.widthMm} mm`}
+                  hint={`${paper.printableWidthMm.toFixed(1)} mm printable`}
                 />
                 <Spec
                   icon={<Printer className="size-4" aria-hidden />}
                   label="Print head"
                   value={`${config.resolutionDpi} dpi`}
-                  hint={`${config.printableDots} dots across`}
+                  hint={`${paper.dots} dots across`}
                 />
                 <Spec
                   icon={<Minus className="size-4" aria-hidden />}
@@ -176,7 +184,7 @@ export default function PrintingPage() {
                   <div className="flex gap-2">
                     <dt className="w-40 shrink-0 text-muted">Paper size</dt>
                     <dd className="font-medium">
-                      the {config.paperWidthMm}mm roll, not A4 or Letter
+                      the {paper.widthMm}mm roll, not A4 or Letter
                     </dd>
                   </div>
                 </dl>

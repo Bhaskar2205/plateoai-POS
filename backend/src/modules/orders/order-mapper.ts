@@ -177,6 +177,10 @@ export function toKitchenTicketDto(
 
   return {
     id: ticket.id,
+    // Defaulted rather than required: updateStatus maps a ticket it already has
+    // in hand, and a kitchen ticket is worth printing at the usual width even
+    // if the join behind it was not asked for.
+    paperWidthMm: ticket.restaurant?.printPaperWidthMm ?? 80,
     ticketNumber: ticket.ticketNumber,
     orderId: ticket.orderId,
     orderNumber: ticket.order?.orderNumber ?? 0,
@@ -193,9 +197,10 @@ export function toKitchenTicketDto(
   };
 }
 
-export function toKotPrintDto(ticket: KotTicket, restaurantName: string): KotPrintDto {
+export function toKotPrintDto(ticket: KotTicket, restaurant: Restaurant): KotPrintDto {
   return {
-    restaurantName,
+    restaurantName: restaurant.name,
+    paperWidthMm: restaurant.printPaperWidthMm,
     ticketNumber: ticket.ticketNumber,
     orderNumber: ticket.order?.orderNumber ?? 0,
     tableName: ticket.order?.table?.name ?? null,
@@ -239,6 +244,7 @@ export function toBillDto(order: Order, restaurant: Restaurant): BillDto {
     restaurantPhone: restaurant.phone,
     taxNumber: restaurant.taxNumber,
     logoUrl: restaurant.logoUrl,
+    paperWidthMm: restaurant.printPaperWidthMm,
     tableName: order.table?.name ?? null,
     paymentQrUrl: qr.url,
     paymentQrLabel: qr.label,

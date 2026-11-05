@@ -69,7 +69,7 @@ export class KitchenService {
         status: In(statuses),
         businessDate: businessDateFor(),
       },
-      relations: { items: true, order: { table: true } },
+      relations: { items: true, order: { table: true }, restaurant: true },
       order: { createdAt: 'ASC' },
     });
 
@@ -180,7 +180,7 @@ export class KitchenService {
   private async loadTicket(restaurantId: number, ticketId: number): Promise<KotTicket> {
     const ticket = await this.ticketsRepository.findOne({
       where: { id: ticketId, restaurantId },
-      relations: { items: true, order: { table: true } },
+      relations: { items: true, order: { table: true }, restaurant: true },
     });
 
     if (!ticket) {

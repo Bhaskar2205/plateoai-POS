@@ -2,7 +2,9 @@ import {
   MIN_PAGE_MM,
   PX_PER_MM,
   TAIL_MM,
-  printableWidthMm,
+  type PaperSpec,
+  paperFor,
+  paperWidthOrDefault,
   thermalPrinterConfig as config,
 } from './print-config';
 import type { Bill, KotPrint } from './types';
@@ -24,14 +26,13 @@ import type { Bill, KotPrint } from './types';
  * exists to make the paper look balanced.
  */
 
-const ROLL_WIDTH_MM = config.paperWidthMm;
 
 /** Shared by both documents. What differs between them is set per document. */
-const basePaperCss = (fontSizePx: number) => `
+const basePaperCss = (paper: PaperSpec, fontSizePx: number) => `
   @page { margin: 0; }
   html, body { margin: 0; background: #fff; }
   body {
-    width: ${printableWidthMm()}mm;
+    width: ${paper.printableWidthMm}mm;
     padding: 1.5mm;
     box-sizing: border-box;
     font-family: "Courier New", ui-monospace, monospace;
@@ -150,10 +151,15 @@ const clock = (value: string) =>
  * Resolves once printing has been *requested*, not once paper has moved - the
  * browser will not tell us that, so nothing in the UI should claim it did.
  */
-async function printHtml(title: string, bodyHtml: string, fontSizePx: number): Promise<void> {
+async function printHtml(
+  title: string,
+  bodyHtml: string,
+  paper: PaperSpec,
+  fontSizePx: number,
+): Promise<void> {
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(
     title,
-  )}</title><style>${basePaperCss(fontSizePx)}</style></head><body>${bodyHtml}</body></html>`;
+  )}</title><style>${basePaperCss(paper, fontSizePx)}</style></head><body>${bodyHtml}</body></html>`;
 
   const frame = document.createElement('iframe');
   frame.setAttribute('aria-hidden', 'true');
@@ -203,7 +209,7 @@ async function printHtml(title: string, bodyHtml: string, fontSizePx: number): P
   const heightMm = Math.max(MIN_PAGE_MM, contentMm);
 
   const page = doc.createElement('style');
-  page.textContent = `@page { size: ${ROLL_WIDTH_MM}mm ${heightMm}mm; margin: 0; }`;
+  page.textContent = `@page { size: ${paper.widthMm}mm ${heightMm}mm; margin: 0; }`;
   doc.head.appendChild(page);
 
   const cleanup = () => setTimeout(() => frame.remove(), 500);
@@ -227,6 +233,7 @@ async function printHtml(title: string, bodyHtml: string, fontSizePx: number): P
  */
 export function printKotTicket(ticket: KotPrint): Promise<void> {
   const { kot } = config;
+  const paper = paperFor(paperWidthOrDefault(ticket.paperWidthMm));
 
   const lines = ticket.items
     .map(
@@ -260,13 +267,15 @@ export function printKotTicket(ticket: KotPrint): Promise<void> {
   return printHtml(
     `KOT ${ticket.ticketNumber} - ${ticket.tableName ?? 'Counter'}`,
     body,
-    kot.fontSizePx,
+    paper,
+    paper.kotFontPx,
   );
 }
 
 /** The diner's bill. Cancelled lines never reach it - the API leaves them out. */
 export function printBill(bill: Bill): Promise<void> {
   const { finalBill } = config;
+  const paper = paperFor(paperWidthOrDefault(bill.paperWidthMm));
 
   const lines = bill.lines
     .map((line) => {
@@ -383,5 +392,5 @@ export function printBill(bill: Bill): Promise<void> {
     <div class="thanks">Thanks for visiting us</div>
   `;
 
-  return printHtml(`Bill ${bill.orderNumber}`, body, finalBill.fontSizePx);
+  return printHtml(`Bill ${bill.orderNumber}`, body, paper, paper.billFontPx);
 }

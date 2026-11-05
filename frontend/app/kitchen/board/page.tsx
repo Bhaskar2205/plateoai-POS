@@ -109,6 +109,7 @@ export default function KitchenBoardPage() {
   const print = async (ticket: KitchenTicket) => {
     try {
       await printKotTicket({
+        paperWidthMm: ticket.paperWidthMm,
         restaurantName: session?.restaurantName ?? '',
         ticketNumber: ticket.ticketNumber,
         orderNumber: ticket.orderNumber,

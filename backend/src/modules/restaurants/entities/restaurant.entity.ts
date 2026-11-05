@@ -130,6 +130,20 @@ export class Restaurant {
   printPaymentQr: boolean;
 
   /**
+   * The width of the thermal roll this restaurant's printer takes, in mm.
+   *
+   * 58, 80 or 112. Only the roll width is stored: how much of it a head can
+   * actually reach, and what type size fits on it, follow from the width and
+   * belong with the layout rather than in the database.
+   *
+   * 80 for everyone until an owner says otherwise, which is what every
+   * restaurant on Plateo is running today.
+   */
+  @ApiProperty({ example: 80 })
+  @Column({ type: 'smallint', unsigned: true, name: 'print_paper_width_mm', default: 80 })
+  printPaperWidthMm: number;
+
+  /**
    * Whether Plateo pays any attention to stock.
    *
    * DISABLED for everyone until somebody turns it on, and that default is the

@@ -257,6 +257,14 @@ export class KitchenTicketDto {
   @ApiProperty({ example: 9 })
   id: number;
 
+  @ApiProperty({
+    example: 80,
+    description:
+      'The thermal roll this restaurant prints on, in millimetres, so a kitchen screen can ' +
+      'print a ticket without a second request.',
+  })
+  paperWidthMm: number;
+
   @ApiProperty({ example: 5 })
   ticketNumber: number;
 
@@ -289,6 +297,14 @@ export class KitchenTicketDto {
 export class KotPrintDto {
   @ApiProperty({ example: 'The Green Bowl' })
   restaurantName: string;
+
+  @ApiProperty({
+    example: 80,
+    description:
+      'The thermal roll this document is laid out for, in millimetres. Sent with the document ' +
+      'so the till never has to look the restaurant up to print it.',
+  })
+  paperWidthMm: number;
 
   @ApiProperty({ example: 5 })
   ticketNumber: number;
@@ -339,6 +355,14 @@ export class BillLineDto {
  * shown, let alone charged for, something the kitchen never made.
  */
 export class BillDto {
+  @ApiProperty({
+    example: 80,
+    description:
+      'The thermal roll this bill is laid out for, in millimetres. Sent with the bill so the ' +
+      'till never has to look the restaurant up to print it.',
+  })
+  paperWidthMm: number;
+
   @ApiProperty({ example: 41 })
   orderId: number;
 

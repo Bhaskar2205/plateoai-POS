@@ -671,7 +671,7 @@ export class OrdersService {
 
     const restaurant = await this.restaurantOf(restaurantId);
 
-    return toKotPrintDto(ticket, restaurant.name);
+    return toKotPrintDto(ticket, restaurant);
   }
 
   /**

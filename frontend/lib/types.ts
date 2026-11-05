@@ -559,6 +559,8 @@ export interface KitchenTicketItem {
 
 /** Carries no money: a kitchen screen is often on a wall. */
 export interface KitchenTicket {
+  /** The roll this restaurant prints on, so a kitchen screen needs no lookup. */
+  paperWidthMm: number;
   id: number;
   ticketNumber: number;
   orderId: number;
@@ -572,6 +574,8 @@ export interface KitchenTicket {
 }
 
 export interface KotPrint {
+  /** The thermal roll this document is laid out for: 58, 80 or 112mm. */
+  paperWidthMm: number;
   restaurantName: string;
   ticketNumber: number;
   orderNumber: number;
@@ -589,6 +593,8 @@ export interface BillLine {
 }
 
 export interface Bill {
+  /** The thermal roll this document is laid out for: 58, 80 or 112mm. */
+  paperWidthMm: number;
   orderId: number;
   orderNumber: number;
   businessDate: string;
@@ -642,6 +648,8 @@ export interface PrintSettings {
   paymentQrUrl: string | null;
   paymentQrLabel: string | null;
   printPaymentQr: boolean;
+  /** The roll the printer takes: 58, 80 or 112mm. */
+  paperWidthMm: number;
 }
 
 /** What a diner gets back from the public menu after ordering. */

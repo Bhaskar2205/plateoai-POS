@@ -1,3 +1,4 @@
+import { DEFAULT_PAPER_WIDTH_MM } from '@/lib/print-config';
 import type { Bill, KotPrint, MeResponse, PrintSettings } from '@/lib/types';
 
 /**
@@ -20,8 +21,9 @@ const SAMPLE_ITEMS = [
   { name: 'Butter Naan', quantity: 4, unitPrice: 70, note: null },
 ];
 
-export function sampleKot(session: MeResponse): KotPrint {
+export function sampleKot(session: MeResponse, settings?: PrintSettings): KotPrint {
   return {
+    paperWidthMm: settings?.paperWidthMm ?? DEFAULT_PAPER_WIDTH_MM,
     restaurantName: session.restaurant.name,
     ticketNumber: 0,
     orderNumber: 0,
@@ -53,6 +55,7 @@ export function sampleBill(session: MeResponse, settings: PrintSettings | undefi
   const taxAmount = Math.round(subtotal * (rate / 100) * 100) / 100;
 
   return {
+    paperWidthMm: settings?.paperWidthMm ?? DEFAULT_PAPER_WIDTH_MM,
     orderId: 0,
     orderNumber: 0,
     businessDate: new Date().toISOString().slice(0, 10),

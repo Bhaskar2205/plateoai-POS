@@ -230,6 +230,10 @@ export class RestaurantsService {
       restaurant.printPaymentQr = dto.printPaymentQr;
     }
 
+    if (dto.paperWidthMm !== undefined) {
+      restaurant.printPaperWidthMm = dto.paperWidthMm;
+    }
+
     await this.restaurantsRepository.save(restaurant);
 
     if (dto.printPaymentQr !== undefined && dto.printPaymentQr !== wasPrinting) {
@@ -540,5 +544,6 @@ function toPrintSettings(restaurant: Restaurant): PrintSettingsDto {
     paymentQrUrl: restaurant.paymentQrUrl,
     paymentQrLabel: restaurant.paymentQrLabel,
     printPaymentQr: restaurant.printPaymentQr,
+    paperWidthMm: restaurant.printPaperWidthMm,
   };
 }

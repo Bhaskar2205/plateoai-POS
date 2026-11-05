@@ -1,11 +1,8 @@
 /**
  * What Plateo prints, and on what.
  *
- * One object, read by both documents, so "the bill is too long" is a change in
- * one place rather than a hunt through two HTML templates. The numbers describe
- * the paper every restaurant on Plateo uses: an 80mm thermal roll on a 203 dpi
- * head, which prints 576 dots - 72mm - of usable width and feeds continuous
- * paper rather than sheets.
+ * One module, read by both documents, so "the bill is too long" is a change in
+ * one place rather than a hunt through two HTML templates.
  *
  * Two entries describe the printer rather than the layout, and are worth being
  * straight about, because Plateo prints through the browser rather than over a
@@ -20,11 +17,70 @@
  *    this app controls is the page being exactly as long as the content, which
  *    is what puts the cut in the right place.
  */
+
+/** The three widths thermal rolls are sold in. */
+export const PAPER_WIDTHS_MM = [58, 80, 112] as const;
+
+export type PaperWidthMm = (typeof PAPER_WIDTHS_MM)[number];
+
+/**
+ * Each roll, and the type that fits on it.
+ *
+ * **The printable width is not the roll width.** A print head covers a fixed
+ * number of dots and the rest of the paper is margin it physically cannot
+ * reach, so the figure that matters is the dot count:
+ *
+ *     58mm roll   384 dots at 203 dpi =  48.0mm
+ *     80mm roll   576 dots at 203 dpi =  72.1mm
+ *    112mm roll   832 dots at 203 dpi = 104.1mm
+ *
+ * Laying a bill out to the roll width instead of the head width is what clips
+ * the last characters off the amount column - the one column that must never be
+ * cut.
+ *
+ * 384 for the 58mm roll is the conservative figure. Some printers reach further
+ * on 58mm paper - Epson quotes 420 dots for the TM-T82X in that mode - but a
+ * layout built for 420 dots loses characters on a 384-dot head, while one built
+ * for 384 merely leaves four millimetres of a wider head unused. Only one of
+ * those two mistakes is visible on a guest's bill.
+ *
+ * Type sizes are per roll because the same point size that reads well across
+ * 72mm leaves a 58mm bill with nowhere to put the amount. The sizes here hold
+ * roughly 23 characters on a 58mm line, 32 on an 80mm line and 46 on 112mm.
+ * Measured on the head rather than chosen by eye: rasterising at 203 dpi puts
+ * a bill line at 20 dots on 58mm and 21 on 80mm, both above the 17-dot cell of
+ * the printer's own Font B, and keeps the strokes that land on a single dot -
+ * the ones a worn head prints as broken grey - near or under one percent.
+ *
+ * 58mm wraps more than 80mm does, and that is the right trade: a narrow roll
+ * that wraps a long dish name is readable, and one that shrinks the type until
+ * it fits is not.
+ */
+const papers: Record<PaperWidthMm, { dots: number; kotFontPx: number; billFontPx: number }> = {
+  58: { dots: 384, kotFontPx: 14, billFontPx: 13 },
+  80: { dots: 576, kotFontPx: 16, billFontPx: 14 },
+  112: { dots: 832, kotFontPx: 16, billFontPx: 14 },
+};
+
+/** The roll every restaurant printed on before the setting existed. */
+export const DEFAULT_PAPER_WIDTH_MM: PaperWidthMm = 80;
+
+export const isPaperWidth = (value: unknown): value is PaperWidthMm =>
+  PAPER_WIDTHS_MM.includes(value as PaperWidthMm);
+
+/**
+ * The roll to lay a document out for.
+ *
+ * Anything unrecognised falls back to 80 rather than throwing: a bill that
+ * prints on the wrong width is a complaint, and a bill that does not print at
+ * all is a table waiting to pay.
+ */
+export const paperWidthOrDefault = (value: unknown): PaperWidthMm =>
+  isPaperWidth(value) ? value : DEFAULT_PAPER_WIDTH_MM;
+
+/** What stays the same whatever paper is loaded. */
 export const thermalPrinterConfig = {
-  paperWidthMm: 80,
-  printableWidthMm: 72,
   resolutionDpi: 203,
-  printableDots: 576,
   encoding: 'ESC/POS',
   height: 'dynamic',
   cutPaper: true,
@@ -34,10 +90,6 @@ export const thermalPrinterConfig = {
     showTable: true,
     showSpecialInstructions: true,
     showOrderTime: true,
-    // 16, not 14. A cook reads this at arm's length over a pass, and a thermal
-    // head renders type lighter than a screen does - a printed receipt from the
-    // field came back with the text barely legible at 14.
-    fontSizePx: 16,
   },
 
   finalBill: {
@@ -47,21 +99,39 @@ export const thermalPrinterConfig = {
     showPaymentStatus: true,
     showRestaurantDetails: true,
     showInvoiceNumber: true,
-    // 14, not 12. Measured on the head rather than guessed: rasterising the
-    // bill at the printer's own 203 dpi puts a line of this type at 21 dots,
-    // 2.63mm - above the 17-dot cell of the printer's own Font B and above the
-    // reference receipt a restaurant sent in as the standard to match. It also
-    // cuts the strokes that land on a single dot, which is what prints as a
-    // broken grey line on a worn head, from 29 to 18 in a whole bill.
-    //
-    // Not 15 or 16. Those gain a quarter of a millimetre of type and cost 9 to
-    // 13mm of roll on every bill of the day, which is the complaint this is
-    // answering.
-    fontSizePx: 14,
   },
 } as const;
 
 export type ThermalPrinterConfig = typeof thermalPrinterConfig;
+
+export interface PaperSpec {
+  widthMm: PaperWidthMm;
+  /** Dots the head covers across the roll. */
+  dots: number;
+  /** What those dots come to in millimetres, which is what the body is laid out to. */
+  printableWidthMm: number;
+  kotFontPx: number;
+  billFontPx: number;
+}
+
+/**
+ * Everything the layout needs for one roll.
+ *
+ * The printable width is derived from the dot count rather than written down
+ * twice: 576 dots at 203 dpi is 72.07mm, and rounding that to 72 leaves a
+ * column of dots unused down one edge.
+ */
+export const paperFor = (widthMm: PaperWidthMm): PaperSpec => {
+  const paper = papers[widthMm];
+
+  return {
+    widthMm,
+    dots: paper.dots,
+    printableWidthMm: (paper.dots / thermalPrinterConfig.resolutionDpi) * 25.4,
+    kotFontPx: paper.kotFontPx,
+    billFontPx: paper.billFontPx,
+  };
+};
 
 /** CSS pixels are 96 to the inch by definition, whatever the screen does. */
 export const PX_PER_MM = 96 / 25.4;
@@ -81,7 +151,7 @@ export const TAIL_MM = 2;
  * Nothing to do with orientation. Chrome renders a page shorter than it is wide
  * perfectly upright - rendering the same ticket at 37, 60, 79 and 120mm and
  * reading the page box, the `/Rotate` entry and the first text matrix out of the
- * resulting PDF gives upright text and no rotation at every one of them. The
+ * resulting PDF gives upright text and no rotation at every one of them. An
  * earlier floor of a whole roll width was guarding against something the
  * browser does not do, and it fed about 47mm of blank paper under every
  * kitchen ticket.
@@ -92,17 +162,6 @@ export const TAIL_MM = 2;
  */
 export const MIN_PAGE_MM = 40;
 
-/**
- * How wide the printable area is, worked out from the dot count rather than
- * taken from `printableWidthMm`.
- *
- * 576 dots at 203 dpi is 72.07mm. The declared 72 is the same number rounded,
- * and rounding the other way - asking for 72mm of a 72.07mm head - is what
- * leaves a column of dots unused down one edge.
- */
-export const printableWidthMm = (): number =>
-  (thermalPrinterConfig.printableDots / thermalPrinterConfig.resolutionDpi) * 25.4;
-
-/** The widest line of monospace that fits, in characters, at a given size. */
-export const charactersPerLine = (fontSizePx: number): number =>
-  Math.floor((printableWidthMm() * PX_PER_MM) / (fontSizePx * 0.6));
+/** The widest line of monospace that fits on this paper, in characters. */
+export const charactersPerLine = (paper: PaperSpec, fontSizePx: number): number =>
+  Math.floor((paper.printableWidthMm * PX_PER_MM) / (fontSizePx * 0.6));

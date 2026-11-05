@@ -1,16 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+
+/** The three widths thermal rolls are sold in. */
+export const PAPER_WIDTHS_MM = [58, 80, 112] as const;
 
 /**
  * What a restaurant prints on its bills, beyond the figures.
  *
- * Only the payment QR lives here. Everything else about the two documents - the
- * roll width, the dot pitch, which fields each one carries - is fixed by the
- * paper and by what a kitchen and a tax invoice have to say, so it is a constant
- * in the apps rather than a per-restaurant setting nobody would ever change.
+ * Two things live here: the payment QR, and the width of the roll the printer
+ * takes. Everything else about the two documents - how much of the roll the
+ * head can reach, what type size fits, which fields each one carries - follows
+ * from the paper and from what a kitchen and a tax invoice have to say, so it
+ * is worked out in the apps rather than stored per restaurant.
  */
 export class PrintSettingsDto {
   @ApiProperty({
@@ -41,6 +45,13 @@ export class PrintSettingsDto {
       'while no QR has been uploaded.',
   })
   printPaymentQr: boolean;
+
+  @ApiProperty({
+    example: 80,
+    enum: PAPER_WIDTHS_MM,
+    description: 'The thermal roll this restaurant prints on, in millimetres.',
+  })
+  paperWidthMm: number;
 }
 
 export class UpdatePrintSettingsDto {
@@ -62,4 +73,15 @@ export class UpdatePrintSettingsDto {
   @IsOptional()
   @IsBoolean()
   printPaymentQr?: boolean;
+
+  @ApiPropertyOptional({
+    example: 58,
+    enum: PAPER_WIDTHS_MM,
+    description:
+      'The roll the printer takes. Set it to match the paper actually loaded: a bill laid out ' +
+      'for 80mm comes off the right-hand edge of a 58mm roll.',
+  })
+  @IsOptional()
+  @IsIn(PAPER_WIDTHS_MM as unknown as number[])
+  paperWidthMm?: number;
 }
