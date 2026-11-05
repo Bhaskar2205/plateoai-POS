@@ -146,21 +146,25 @@ export const PX_PER_MM = 96 / 25.4;
 export const TAIL_MM = 2;
 
 /**
- * The shortest page worth sending to a roll printer.
+ * The shortest page a roll printer may be sent, as a multiple of its own width.
  *
- * Nothing to do with orientation. Chrome renders a page shorter than it is wide
- * perfectly upright - rendering the same ticket at 37, 60, 79 and 120mm and
- * reading the page box, the `/Rotate` entry and the first text matrix out of the
- * resulting PDF gives upright text and no rotation at every one of them. An
- * earlier floor of a whole roll width was guarding against something the
- * browser does not do, and it fed about 47mm of blank paper under every
- * kitchen ticket.
+ * A page is never allowed to be wider than it is tall. The Windows print driver
+ * reads a wider-than-tall page as a landscape job, turns the raster ninety
+ * degrees and feeds a long form - a kitchen ticket printed sideways down a roll
+ * of blank paper.
  *
- * What is real is the driver's own minimum form length: Windows thermal drivers
- * commonly refuse or pad a page under about 30mm. 40mm clears that with room to
- * spare and is still less than half of what the old floor cost.
+ * This was briefly lowered to a flat 40mm after a headless test showed Chrome's
+ * PDF export leaving short pages upright. That test was sound and irrelevant:
+ * the PDF exporter is not the path a till prints through. The regression it
+ * caused is why the rule is stated here as well as at the point of use.
+ *
+ * `printPageHeightMm` is the only correct way to work a page height out.
  */
-export const MIN_PAGE_MM = 40;
+export const portraitFloorMm = (paper: PaperSpec): number => paper.widthMm + TAIL_MM;
+
+/** The page height for a document whose laid-out content measures `contentMm`. */
+export const printPageHeightMm = (paper: PaperSpec, contentMm: number): number =>
+  Math.max(portraitFloorMm(paper), Math.ceil(contentMm + TAIL_MM));
 
 /** The widest line of monospace that fits on this paper, in characters. */
 export const charactersPerLine = (paper: PaperSpec, fontSizePx: number): number =>

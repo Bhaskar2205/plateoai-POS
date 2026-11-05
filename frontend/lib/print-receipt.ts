@@ -1,10 +1,9 @@
 import {
-  MIN_PAGE_MM,
   PX_PER_MM,
-  TAIL_MM,
   type PaperSpec,
   paperFor,
   paperWidthOrDefault,
+  printPageHeightMm,
   thermalPrinterConfig as config,
 } from './print-config';
 import type { Bill, KotPrint } from './types';
@@ -197,16 +196,24 @@ async function printHtml(
   // puts the driver's cut in the right place.
   await whenLaidOut(frame);
 
-  // As long as the content, and no longer.
+  // As long as the content, but NEVER WIDER THAN IT IS TALL.
   //
-  // This used to be floored at a whole roll width on the theory that a page
-  // wider than it is tall would be turned ninety degrees on its way to the
-  // roll. It is not: Chrome renders a 37mm page as upright as a 120mm one, and
-  // the floor was feeding roughly 47mm of blank paper under every kitchen
-  // ticket - which a restaurant reports, correctly, as the printer eating the
-  // roll. The only floor left is the driver's minimum form length.
-  const contentMm = Math.ceil(doc.body.scrollHeight / PX_PER_MM + TAIL_MM);
-  const heightMm = Math.max(MIN_PAGE_MM, contentMm);
+  // Do not lower this floor. It has been removed once, on the strength of a
+  // test that rendered short pages through Chrome's PDF export and found
+  // upright text, no /Rotate entry and an unrotated text matrix at 37, 60 and
+  // 79mm. All of that was true and none of it was the point: the PDF exporter
+  // is not the path a till prints through. A real receipt goes Chrome -> the
+  // Windows driver -> the printer, and to that driver a page wider than it is
+  // tall IS a landscape job. It rotates the raster ninety degrees and feeds a
+  // long form, which is how a restaurant got a kitchen ticket printed sideways
+  // down a roll of otherwise blank paper the day after the floor came out.
+  //
+  // So the floor is the roll's own width plus the tail. It costs a few
+  // millimetres on the shortest tickets. The alternative costs a roll.
+  //
+  // Any future attempt to reclaim those millimetres has to be verified on
+  // paper, through a driver, not in a headless browser.
+  const heightMm = printPageHeightMm(paper, doc.body.scrollHeight / PX_PER_MM);
 
   const page = doc.createElement('style');
   page.textContent = `@page { size: ${paper.widthMm}mm ${heightMm}mm; margin: 0; }`;
