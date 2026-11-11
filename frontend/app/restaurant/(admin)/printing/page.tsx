@@ -14,6 +14,7 @@ import { usePrintSettings } from '@/lib/queries';
 import { PageHeader, SectionHeading } from '@/components/page-header';
 import { BillLogoCard } from '@/components/printing/bill-logo-card';
 import { PaperWidthCard } from '@/components/printing/paper-width-card';
+import { PrintAgentCard } from '@/components/printing/print-agent-card';
 import { PaymentQrCard } from '@/components/printing/payment-qr-card';
 import { sampleBill, sampleKot } from '@/components/printing/sample-documents';
 import { Card, CardBody, CardHeader } from '@/components/ui/card';
@@ -60,6 +61,11 @@ export default function PrintingPage() {
       />
 
       <div className="space-y-6">
+        {/* First, and for anyone at the till: it decides how everything below
+            reaches the paper, and it belongs to this till rather than to the
+            restaurant. */}
+        <PrintAgentCard />
+
         {/* The only thing on this page that is actually a setting. Owners only:
             a payment code decides where a guest's money goes. */}
         {owner ? (
@@ -162,7 +168,7 @@ export default function PrintingPage() {
               <div className="rounded-xl border border-warn-600/30 bg-warn-50 p-4">
                 <p className="flex items-center gap-2 text-sm font-semibold text-warn-600">
                   <Settings2 className="size-4" aria-hidden />
-                  Set these once in the print dialog, on every till
+                  If a till prints through the browser, set these once in its print dialog
                 </p>
                 <dl className="mt-2.5 space-y-1.5 text-sm text-ink">
                   <div className="flex gap-2">

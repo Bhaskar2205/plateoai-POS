@@ -6,6 +6,9 @@ import {
   printPageHeightMm,
   thermalPrinterConfig as config,
 } from './print-config';
+import { billEscPos, kotEscPos } from './escpos-documents';
+import { agentEnabled, type PrinterRole, sendToAgent } from './print-agent';
+import { clock, money, timestamp } from './print-format';
 import type { Bill, KotPrint } from './types';
 
 /**
@@ -127,23 +130,6 @@ const escapeHtml = (value: string) =>
     (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!,
   );
 
-/** Indian-format money without a currency symbol: thermal fonts rarely have one. */
-const money = (value: number) =>
-  value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-/** Date and time, for a bill that may be read back weeks later. */
-const timestamp = (value: string) =>
-  new Date(value).toLocaleString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-/** Time alone, for a ticket the kitchen reads within the hour. */
-const clock = (value: string) =>
-  new Date(value).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-
 /**
  * Renders HTML in a hidden iframe and opens the print dialog.
  *
@@ -228,6 +214,41 @@ async function printHtml(
 }
 
 /**
+ * Prints straight to the printer through the Plateo Print Agent, when this till
+ * has been connected to one.
+ *
+ * True when the job went to paper that way. False when the browser should print
+ * it instead: the till is not connected, the agent is not running, it has no
+ * printer for this job, or the printer refused the connection - in every one of
+ * those cases nothing reached the printer, so the browser cannot make a second
+ * copy. A failure after bytes started flowing is thrown instead, because
+ * printing again another way could put two bills on the table.
+ */
+async function printedDirect(
+  role: PrinterRole,
+  build: () => Promise<Uint8Array>,
+): Promise<boolean> {
+  if (!agentEnabled()) return false;
+
+  let data: Uint8Array;
+  try {
+    data = await build();
+  } catch (error) {
+    console.warn('[print] could not build the ESC/POS job, using the browser:', error);
+    return false;
+  }
+
+  const result = await sendToAgent(role, data);
+  if (result.ok) return true;
+  if (result.fallback) {
+    console.warn(`[print] ${result.message} Printing through the browser instead.`);
+    return false;
+  }
+
+  throw new Error(`The printer stopped part-way: ${result.message} Check it before printing again.`);
+}
+
+/**
  * A kitchen ticket.
  *
  * Never prices - `kot.showPrices` is false and the kitchen is cooking, not
@@ -238,7 +259,9 @@ async function printHtml(
  * and on a roll that is cut by hand every line at the top pushes the first dish
  * further from the tear.
  */
-export function printKotTicket(ticket: KotPrint): Promise<void> {
+export async function printKotTicket(ticket: KotPrint): Promise<void> {
+  if (await printedDirect('kot', async () => kotEscPos(ticket))) return;
+
   const { kot } = config;
   const paper = paperFor(paperWidthOrDefault(ticket.paperWidthMm));
 
@@ -280,7 +303,9 @@ export function printKotTicket(ticket: KotPrint): Promise<void> {
 }
 
 /** The diner's bill. Cancelled lines never reach it - the API leaves them out. */
-export function printBill(bill: Bill): Promise<void> {
+export async function printBill(bill: Bill): Promise<void> {
+  if (await printedDirect('bill', () => billEscPos(bill))) return;
+
   const { finalBill } = config;
   const paper = paperFor(paperWidthOrDefault(bill.paperWidthMm));
 
